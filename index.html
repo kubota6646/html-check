@@ -297,7 +297,22 @@
     }
 
     .check-item .icon { flex-shrink: 0; }
+    .check-item .check-body { display: flex; flex-direction: column; gap: 0.2rem; }
     .check-item .reason { color: #718096; }
+    .check-item .suggestion {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.3rem;
+      background: #ebf8ff;
+      border-left: 3px solid #63b3ed;
+      border-radius: 4px;
+      padding: 0.35rem 0.6rem;
+      color: #2c5282;
+      font-size: 0.82rem;
+      margin-top: 0.1rem;
+      white-space: pre-wrap;
+    }
+    .check-item .suggestion .s-icon { flex-shrink: 0; }
 
     /* ===== フッター ===== */
     footer {
@@ -366,8 +381,7 @@ function gradeHTML(html) {
 
   const result = {
     categories: {},
-    total: 0,
-    checks: []   // { label, pass, points, reason }
+    total: 0
   };
 
   /* ---- ① HTML基本構造（30点） ---- */
@@ -375,25 +389,35 @@ function gradeHTML(html) {
 
   const hasDoctype = /<!doctype\s+html\s*>/i.test(html);
   addCheck(struct, '<!DOCTYPE html> がある', hasDoctype, 5,
-    '<!DOCTYPE html> 宣言がありません。HTMLファイルの1行目に記述してください。');
+    '<!DOCTYPE html> 宣言がありません。HTMLファイルの1行目に記述してください。',
+    'ファイルの一番先頭（1行目）に次のコードを追加してください：\n<!DOCTYPE html>');
 
   const htmlTag = html.match(/<html([^>]*)>/i);
   const hasLangInHtml = htmlTag && /lang\s*=/i.test(htmlTag[1]);
+  const htmlTagLineNum = findLine(lines, /<html/i);
   addCheck(struct, '<html lang=""> がある', !!hasLangInHtml, 5,
-    '<html> タグに lang 属性がありません。例: <html lang="ja">');
+    `${htmlTagLineNum ? htmlTagLineNum + '行目: ' : ''}<html> タグに lang 属性がありません。例: <html lang="ja">`,
+    `${htmlTagLineNum ? htmlTagLineNum + '行目の ' : ''}<html> タグを次のように変更してください：\n<html lang="ja">`);
 
-  addCheck(struct, '<head> タグがある', !!doc.querySelector('head'), 5,
-    '<head> タグがありません。');
+  // DOMParser は <head> と <body> を自動補完するため、元の文字列に対して正規表現で確認する
+  const hasHead = /<head[\s>]/i.test(html);
+  addCheck(struct, '<head> タグがある', hasHead, 5,
+    '<head> タグがありません。',
+    '<html> タグの直後に <head> セクションを追加してください：\n<head>\n  <meta charset="UTF-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n  <title>ページタイトル</title>\n</head>');
 
-  addCheck(struct, '<body> タグがある', !!doc.querySelector('body'), 5,
-    '<body> タグがありません。');
+  const hasBody = /<body[\s>]/i.test(html);
+  addCheck(struct, '<body> タグがある', hasBody, 5,
+    '<body> タグがありません。',
+    '</head> タグの直後に <body> セクションを追加してください：\n<body>\n  <!-- ページのコンテンツをここに書く -->\n</body>');
 
   const hasMetaCharset = /<meta[^>]+charset\s*=/i.test(html);
   addCheck(struct, '<meta charset> がある', hasMetaCharset, 5,
-    '<meta charset> がありません。例: <meta charset="UTF-8">');
+    '<meta charset> がありません。例: <meta charset="UTF-8">',
+    '<head> タグの直後（最初の行）に次のコードを追加してください：\n<meta charset="UTF-8">');
 
   addCheck(struct, '<title> タグがある', !!doc.querySelector('title'), 5,
-    '<title> タグがありません。');
+    '<title> タグがありません。',
+    '<head> 内に次のコードを追加してください：\n<title>ページのタイトル</title>');
 
   result.categories['HTML基本構造'] = struct;
 
@@ -404,27 +428,49 @@ function gradeHTML(html) {
   const hasMain   = !!doc.querySelector('main');
   const hasFooter = !!doc.querySelector('footer');
   const semanticOk = hasHeader && hasMain && hasFooter;
+  const missingSemanticTags = [!hasHeader && '<header>', !hasMain && '<main>', !hasFooter && '<footer>'].filter(Boolean);
   addCheck(sem, '<header> <main> <footer> タグを使っている', semanticOk, 10,
-    `不足しているタグ: ${[!hasHeader && '<header>', !hasMain && '<main>', !hasFooter && '<footer>'].filter(Boolean).join(', ')}`);
+    `不足しているタグ: ${missingSemanticTags.join(', ')}`,
+    `<body> 内に不足しているタグを追加してください。基本構造の例：\n<body>\n  <header><!-- ヘッダー --></header>\n  <main><!-- メインコンテンツ --></main>\n  <footer><!-- フッター --></footer>\n</body>`);
 
   const headings = doc.querySelectorAll('h1,h2,h3,h4,h5,h6');
   const h1Count = doc.querySelectorAll('h1').length;
   const headingOk = (headings.length === 0 || h1Count === 1) && isHeadingHierarchyCorrect(headings);
+  const h1Lines = findAllLines(lines, /<h1[\s>]/i);
+  const firstHeadingTagName = headings.length > 0 ? headings[0].tagName.toLowerCase() : '';
+  const firstHeadingLine = firstHeadingTagName
+    ? findLine(lines, new RegExp(`<${firstHeadingTagName}[\\s>]`, 'i'))
+    : null;
   const headingReason = h1Count > 1
-    ? `<h1> が ${h1Count} 個あります。<h1> は1ページに1つにしてください。`
+    ? `<h1> が ${h1Count} 個あります。<h1> は1ページに1つにしてください${lineRef(h1Lines)}`
     : headings.length > 0 && h1Count === 0
       ? '<h1> タグがありません。ページのメインタイトルに <h1> を使ってください。'
       : headings.length > 0 && parseInt(headings[0].tagName[1], 10) !== 1
-        ? '<h1> が最初の見出しになっていません。ページ最初の見出しを <h1> にしてください。'
+        ? `<h1> が最初の見出しになっていません。ページ最初の見出しを <h1> にしてください${firstHeadingLine ? `（${firstHeadingLine}行目）` : ''}`
         : '見出し階層が飛んでいます（例: h1 の次に h3）。';
-  addCheck(sem, '見出し階層が正しい（h1が複数ない等）', headingOk, 5, headingReason);
+  const headingSuggestion = h1Count > 1
+    ? `${lineRef(h1Lines)} の <h1> のうち1つだけ残し、他は <h2> 以降に変更してください。`
+    : headings.length > 0 && h1Count === 0
+      ? 'ページのメインタイトルを <h1> タグで囲んでください。例：\n<h1>サイトのメインタイトル</h1>'
+      : headings.length > 0 && parseInt(headings[0].tagName[1], 10) !== 1
+        ? `最初の見出し${firstHeadingLine ? `（${firstHeadingLine}行目）` : ''}を <h1> に変更し、以降の見出しを <h2>、<h3>… の順に並べてください。`
+        : '見出しレベルが飛ばないようにしてください。例：h1 → h2 → h3 の順序で使います。h1 の次に h3 を使うのは避けてください。';
+  addCheck(sem, '見出し階層が正しい（h1が複数ない等）', headingOk, 5, headingReason, headingSuggestion);
 
   const images = doc.querySelectorAll('img');
   const imgAltOk = images.length === 0 || Array.from(images).every(img => img.hasAttribute('alt'));
+  // Per-line regex works for single-line <img> tags; fall back to all <img> lines for multi-line cases
+  const badImgLines = imgAltOk ? [] : (() => {
+    const found = findAllLines(lines, /<img\b(?![^>]*\balt\s*=)[^>]*>/i);
+    return found.length > 0 ? found : findAllLines(lines, /<img\b/i);
+  })();
   addCheck(sem, '<img> タグに alt 属性がある', imgAltOk, 5,
     images.length === 0
       ? '（img タグなし・対象外）'
-      : '<img> タグに alt 属性がないものがあります。');
+      : `<img> タグに alt 属性がないものがあります${lineRef(badImgLines)}`,
+    images.length === 0
+      ? ''
+      : `${lineRef(badImgLines)} の <img> タグに alt 属性を追加してください。例：\n<img src="photo.jpg" alt="笑顔の人物写真">`);
 
   result.categories['セマンティクス'] = sem;
 
@@ -436,20 +482,38 @@ function gradeHTML(html) {
   const hasSpaceIndent = indentedLines.some(l => /^ /.test(l));
   const hasTabIndent   = indentedLines.some(l => /^\t/.test(l));
   const indentOk = !(hasSpaceIndent && hasTabIndent);
+  const mixedIndentLines = indentOk ? [] : (() => {
+    const spaceLines = findAllLines(lines, /^ /);
+    const tabLines   = findAllLines(lines, /^\t/);
+    return (spaceLines.length <= tabLines.length ? spaceLines : tabLines);
+  })();
   addCheck(read, 'インデントが統一されている', indentOk, 10,
-    'スペースとタブが混在しています。どちらか一方に統一してください。');
+    `スペースとタブが混在しています。どちらか一方に統一してください${lineRef(mixedIndentLines)}`,
+    `${lineRef(mixedIndentLines)} のインデントを統一してください。スペース（推奨: 半角スペース2つ）かタブのどちらか一方だけを使うようにしてください。エディタの「タブをスペースに変換」機能を活用すると便利です。`);
 
-  const longLineOk = lines.every(l => l.length <= 120);
+  const longLineNums = lines.reduce((acc, l, i) => { if (l.length > 120) acc.push(i + 1); return acc; }, []);
+  const longLineOk = longLineNums.length === 0;
   addCheck(read, '1行が120文字以内', longLineOk, 5,
-    `120文字を超えている行があります。`);
+    `120文字を超えている行があります${lineRef(longLineNums)}`,
+    `${lineRef(longLineNums)} の行を適切な位置で改行してください。タグの属性が多い場合は次のように複数行に分けると読みやすくなります：\n<a\n  href="https://example.com"\n  class="link"\n  target="_blank"\n  rel="noopener noreferrer"\n>リンクテキスト</a>`);
 
   const hasComment = /<!--[\s\S]*?-->/.test(html);
   addCheck(read, 'コメントが1つ以上書かれている', hasComment, 5,
-    'HTMLコメント（<!-- ... -->）が1つもありません。');
+    'HTMLコメント（<!-- ... -->）が1つもありません。',
+    'コードのセクション区切りや補足説明にコメントを追加してください。例：\n<!-- ナビゲーション -->\n<nav>...</nav>\n\n<!-- メインコンテンツここから -->');
 
   const consecutiveBlankOk = !/((\r?\n){4,})/.test(html);
+  const blankLineStart = (() => {
+    if (consecutiveBlankOk) return null;
+    let count = 0;
+    for (let i = 0; i < lines.length; i++) {
+      if (lines[i].trim() === '') { count++; if (count >= 3) return i - 1; } else { count = 0; }
+    }
+    return null;
+  })();
   addCheck(read, '連続する空白行が3行以上ない', consecutiveBlankOk, 5,
-    '3行以上連続する空白行があります。');
+    `3行以上連続する空白行があります${blankLineStart ? `（${blankLineStart}行目付近）` : ''}`,
+    `${blankLineStart ? blankLineStart + '行目付近の' : ''}連続した空白行を削除し、最大2行以内に抑えてください。`);
 
   result.categories['可読性'] = read;
 
@@ -464,32 +528,58 @@ function gradeHTML(html) {
     return !noLabelTypes.includes(type);
   });
   let labelOk = true;
+  const unlabeledInputLines = [];
   if (labelableInputs.length > 0) {
-    labelOk = labelableInputs.every(inp => {
+    labelableInputs.forEach(inp => {
       const id = inp.getAttribute('id');
-      if (id && doc.querySelector(`label[for="${id}"]`)) return true;
-      // label で囲まれているケース
-      return !!inp.closest('label');
+      const hasLabel = (id && doc.querySelector(`label[for="${id}"]`)) || !!inp.closest('label');
+      if (!hasLabel) {
+        labelOk = false;
+        // Try to find the line by the input's id attribute
+        let lineNum = null;
+        if (id) {
+          const idx = lines.findIndex(l => l.includes(`id="${id}"`) || l.includes(`id='${id}'`));
+          if (idx !== -1) lineNum = idx + 1;
+        }
+        // Fallback: pick next <input> line not already recorded
+        if (!lineNum) {
+          const allInputLines = findAllLines(lines, /<input\b/i);
+          lineNum = allInputLines.find(l => !unlabeledInputLines.includes(l)) || null;
+        }
+        if (lineNum && !unlabeledInputLines.includes(lineNum)) {
+          unlabeledInputLines.push(lineNum);
+        }
+      }
     });
   }
   addCheck(a11y, '<input> に対応する <label> がある', labelOk, 5,
     labelableInputs.length === 0
       ? '（label が必要な input タグなし・対象外）'
-      : '<input> に対応する <label> がない要素があります。');
+      : `<input> に対応する <label> がない要素があります${lineRef(unlabeledInputLines)}`,
+    labelableInputs.length === 0
+      ? ''
+      : `${lineRef(unlabeledInputLines)} の <input> に対応する <label> を追加してください。例：\n<label for="username">ユーザー名</label>\n<input type="text" id="username" name="username">\n\nまたは <label> で <input> を囲む方法もあります：\n<label>\n  メールアドレス\n  <input type="email" name="email">\n</label>`);
 
   const anchors = doc.querySelectorAll('a');
   const badTexts = ['こちら', 'here', 'click', 'クリック', 'ここ'];
   let anchorOk = true;
+  const badAnchorLines = [];
   Array.from(anchors).forEach(a => {
     const text = (a.textContent || '').trim().toLowerCase();
-    if (badTexts.some(bad => text === bad.toLowerCase())) anchorOk = false;
+    if (badTexts.some(bad => text === bad.toLowerCase())) {
+      anchorOk = false;
+      const aLine = findLine(lines, new RegExp('<a\\b[^>]*>\\s*' + text, 'i'));
+      if (aLine && !badAnchorLines.includes(aLine)) badAnchorLines.push(aLine);
+    }
   });
   addCheck(a11y, '<a> タグのテキストが意味のある内容', anchorOk, 5,
-    '<a> タグのテキストが「こちら」「here」「click」等の不明瞭な文言のみになっています。');
+    `<a> タグのテキストが「こちら」「here」「click」等の不明瞭な文言のみになっています${lineRef(badAnchorLines)}`,
+    `${lineRef(badAnchorLines)} のリンクテキストをリンク先の内容が分かる文言に変更してください。例：\n❌ <a href="about.html">こちら</a>\n✅ <a href="about.html">会社概要ページへ</a>`);
 
   const langOk = !!hasLangInHtml;
   addCheck(a11y, '<html> タグに lang 属性がある', langOk, 5,
-    '<html lang="ja"> などの lang 属性を追加してください。');
+    '<html lang="ja"> などの lang 属性を追加してください。',
+    `${htmlTagLineNum ? htmlTagLineNum + '行目の ' : ''}<html> タグを次のように変更してください：\n<html lang="ja">`);
 
   result.categories['アクセシビリティ'] = a11y;
 
@@ -497,16 +587,31 @@ function gradeHTML(html) {
   const bp = { label: 'ベストプラクティス', max: 10, score: 0, checks: [] };
 
   const hasInlineStyle = doc.querySelector('[style]') !== null;
+  const inlineStyleLines = hasInlineStyle ? findAllLines(lines, /\bstyle\s*=\s*["']/i) : [];
   addCheck(bp, 'インラインスタイルを使っていない', !hasInlineStyle, 5,
-    'style属性（インラインスタイル）が使われています。外部CSSファイルまたは<style>タグに移してください。');
+    `style属性（インラインスタイル）が使われています。外部CSSファイルまたは<style>タグに移してください${lineRef(inlineStyleLines)}`,
+    `${lineRef(inlineStyleLines)} の style 属性を削除し、<head> 内の <style> タグまたは外部CSSファイルにまとめてください。例：\n\n変更前: <p style="color: red; font-size: 14px;">\n変更後: <p class="notice">\n\n<style> タグ内に追加:\n.notice { color: red; font-size: 14px; }`);
 
   // HTML5 で再定義された <b><i><u> は除外し、真に非推奨のタグのみを対象とする
   const deprecatedTags = ['font', 'center', 'strike', 'marquee'];
   const usedDeprecated = deprecatedTags.filter(tag =>
     new RegExp(`<${tag}[\\s>]`, 'i').test(html)
   );
+  const deprecatedLineNums = usedDeprecated.flatMap(tag =>
+    findAllLines(lines, new RegExp(`<${tag}[\\s>]`, 'i'))
+  ).sort((a, b) => a - b);
+  const deprecatedSuggestions = {
+    font:    '`<font>` の代わりに CSS を使ってください。例：\n変更前: <font color="red" size="3">テキスト</font>\n変更後: <span class="red-text">テキスト</span>\n.red-text { color: red; font-size: 1rem; }',
+    center:  '`<center>` の代わりに CSS を使ってください。例：\n変更前: <center>テキスト</center>\n変更後: <div class="centered">テキスト</div>\n.centered { text-align: center; }',
+    strike:  '`<strike>` の代わりに HTML5 の適切なタグを使ってください。\n・削除されたコンテンツ（編集履歴など）→ <del>テキスト</del>\n・内容が古くなった・正確でなくなった場合    → <s>テキスト</s>\n例：\n変更前: <strike>テキスト</strike>\n変更後(削除を示す): <del>テキスト</del>\n変更後(無効を示す): <s>テキスト</s>',
+    marquee: '`<marquee>` の代わりに CSS アニメーションを使ってください。例：\n変更前: <marquee>スクロールテキスト</marquee>\n変更後: <p class="marquee-text">スクロールテキスト</p>\n\n/* CSS */\n.marquee-text {\n  overflow: hidden;\n  white-space: nowrap;\n  animation: marquee-scroll 5s linear infinite;\n}\n@keyframes marquee-scroll {\n  from { transform: translateX(100%); }\n  to   { transform: translateX(-100%); }\n}'
+  };
+  const deprecatedSuggestionText = usedDeprecated.length > 0
+    ? usedDeprecated.map(t => deprecatedSuggestions[t] || `<${t}> の代わりに代替手段を使用してください。`).join('\n\n')
+    : '';
   addCheck(bp, '非推奨タグを使っていない', usedDeprecated.length === 0, 5,
-    `非推奨タグが使われています: ${usedDeprecated.map(t => `<${t}>`).join(', ')}`);
+    `非推奨タグが使われています: ${usedDeprecated.map(t => `<${t}>`).join(', ')}${lineRef(deprecatedLineNums)}`,
+    deprecatedSuggestionText);
 
   result.categories['ベストプラクティス'] = bp;
 
@@ -524,9 +629,37 @@ function gradeHTML(html) {
 /**
  * チェック結果をカテゴリオブジェクトに追加し、スコアを加算する
  */
-function addCheck(cat, label, pass, points, reason) {
-  cat.checks.push({ label, pass, points, reason });
+function addCheck(cat, label, pass, points, reason, suggestion = '') {
+  cat.checks.push({ label, pass, points, reason, suggestion });
   if (pass) cat.score += points;
+}
+
+/**
+ * 最初に一致する行番号（1始まり）を返す。見つからなければ null。
+ */
+function findLine(lines, regex) {
+  for (let i = 0; i < lines.length; i++) {
+    if (regex.test(lines[i])) return i + 1;
+  }
+  return null;
+}
+
+/**
+ * 一致するすべての行番号（1始まり）の配列を返す
+ */
+function findAllLines(lines, regex) {
+  const nums = [];
+  lines.forEach((l, i) => { if (regex.test(l)) nums.push(i + 1); });
+  return nums;
+}
+
+/**
+ * 行番号の参照文字列を生成する（例: 「3・7・12行目」）
+ */
+function lineRef(nums) {
+  if (!nums || nums.length === 0) return '';
+  const shown = nums.slice(0, 5);
+  return `（${shown.join('・')}行目${nums.length > 5 ? ' 他' : ''}）`;
 }
 
 /**
@@ -711,7 +844,7 @@ function buildCard(result) {
   const details = document.createElement('details');
   details.className = 'check-list';
   const summary = document.createElement('summary');
-  summary.textContent = '▶ チェック項目の詳細を見る';
+  summary.textContent = 'チェック項目の詳細を見る';
   details.appendChild(summary);
 
   const itemsDiv = document.createElement('div');
@@ -727,8 +860,11 @@ function buildCard(result) {
       const div = document.createElement('div');
       div.className = 'check-item';
       const icon = chk.pass ? '✅' : '❌';
-      const reasonText = chk.pass ? '' : `<span class="reason"> — ${escapeHtml(chk.reason)}</span>`;
-      div.innerHTML = `<span class="icon">${icon}</span><span>${escapeHtml(chk.label)}</span>${reasonText}`;
+      const reasonHtml = chk.pass ? '' : `<span class="reason"> — ${escapeHtml(chk.reason)}</span>`;
+      const suggestionHtml = (!chk.pass && chk.suggestion)
+        ? `<div class="suggestion"><span class="s-icon">💡</span><span>${escapeHtml(chk.suggestion)}</span></div>`
+        : '';
+      div.innerHTML = `<span class="icon">${icon}</span><div class="check-body"><span>${escapeHtml(chk.label)}</span>${reasonHtml}${suggestionHtml}</div>`;
       itemsDiv.appendChild(div);
     });
   });
@@ -775,7 +911,8 @@ csvBtn.addEventListener('click', () => {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  // ダウンロード開始後に解放する（即時解放するとブラウザによってはダウンロードが中断される）
+  setTimeout(() => URL.revokeObjectURL(url), 100);
 });
 
 /* ---- ユーティリティ ---- */
@@ -788,7 +925,8 @@ function escapeHtml(str) {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 /**
