@@ -403,7 +403,7 @@ function gradeHTML(html) {
   const hasHead = /<head[\s>]/i.test(html);
   addCheck(struct, '<head> タグがある', hasHead, 5,
     '<head> タグがありません。',
-    '<html> タグの直後に <head> セクションを追加してください：\n<head>\n  <meta charset="UTF-8">\n  <title>ページタイトル</title>\n</head>');
+    '<html> タグの直後に <head> セクションを追加してください：\n<head>\n  <meta charset="UTF-8">\n  <meta name="viewport" content="width=device-width, initial-scale=1.0">\n  <title>ページタイトル</title>\n</head>');
 
   const hasBody = /<body[\s>]/i.test(html);
   addCheck(struct, '<body> タグがある', hasBody, 5,
