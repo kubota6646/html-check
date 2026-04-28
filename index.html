@@ -559,7 +559,7 @@ uploadArea.addEventListener('dragover', e => {
 });
 
 uploadArea.addEventListener('dragleave', e => {
-  if (!uploadArea.contains(e.relatedTarget)) {
+  if (!e.relatedTarget || !uploadArea.contains(e.relatedTarget)) {
     uploadArea.classList.remove('drag-over');
   }
 });
