@@ -495,7 +495,7 @@ function gradeHTML(html) {
   const longLineOk = longLineNums.length === 0;
   addCheck(read, '1行が120文字以内', longLineOk, 5,
     `120文字を超えている行があります${lineRef(longLineNums)}`,
-    `${lineRef(longLineNums)} の行を適切な位置で改行してください。タグの属性が多い場合は次のように複数行に分けると読みやすくなります：\n<a\n  href="https://example.com"\n  class="link"\n  target="_blank"\n>リンクテキスト</a>`);
+    `${lineRef(longLineNums)} の行を適切な位置で改行してください。タグの属性が多い場合は次のように複数行に分けると読みやすくなります：\n<a\n  href="https://example.com"\n  class="link"\n  target="_blank"\n  rel="noopener noreferrer"\n>リンクテキスト</a>`);
 
   const hasComment = /<!--[\s\S]*?-->/.test(html);
   addCheck(read, 'コメントが1つ以上書かれている', hasComment, 5,
@@ -602,9 +602,9 @@ function gradeHTML(html) {
   ).sort((a, b) => a - b);
   const deprecatedSuggestions = {
     font:    '`<font>` の代わりに CSS を使ってください。例：\n変更前: <font color="red" size="3">テキスト</font>\n変更後: <span class="red-text">テキスト</span>\n.red-text { color: red; font-size: 1rem; }',
-    center:  '`<center>` の代わりに CSS を使ってください。例：\n変更前: <center>テキスト</center>\n変更後: <p class="centered">テキスト</p>\n.centered { text-align: center; }',
-    strike:  '`<strike>` の代わりに <del> タグまたは CSS を使ってください。例：\n変更前: <strike>テキスト</strike>\n変更後: <del>テキスト</del>',
-    marquee: '`<marquee>` の代わりに CSS アニメーションを使ってください。例：\n変更前: <marquee>スクロールテキスト</marquee>\n変更後: <p class="marquee">スクロールテキスト</p>\n.marquee { animation: scroll 5s linear infinite; }'
+    center:  '`<center>` の代わりに CSS を使ってください。例：\n変更前: <center>テキスト</center>\n変更後: <div class="centered">テキスト</div>\n.centered { text-align: center; }',
+    strike:  '`<strike>` の代わりに HTML5 の適切なタグを使ってください。\n・削除されたコンテンツ（編集履歴など）→ <del>テキスト</del>\n・内容が古くなった・正確でなくなった場合    → <s>テキスト</s>\n例：\n変更前: <strike>テキスト</strike>\n変更後(削除を示す): <del>テキスト</del>\n変更後(無効を示す): <s>テキスト</s>',
+    marquee: '`<marquee>` の代わりに CSS アニメーションを使ってください。例：\n変更前: <marquee>スクロールテキスト</marquee>\n変更後: <p class="marquee-text">スクロールテキスト</p>\n\n/* CSS */\n.marquee-text {\n  overflow: hidden;\n  white-space: nowrap;\n  animation: marquee-scroll 5s linear infinite;\n}\n@keyframes marquee-scroll {\n  from { transform: translateX(100%); }\n  to   { transform: translateX(-100%); }\n}'
   };
   const deprecatedSuggestionText = usedDeprecated.length > 0
     ? usedDeprecated.map(t => deprecatedSuggestions[t] || `<${t}> の代わりに代替手段を使用してください。`).join('\n\n')
