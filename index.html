@@ -457,9 +457,15 @@ function gradeHTML(html) {
   const a11y = { label: 'アクセシビリティ', max: 15, score: 0, checks: [] };
 
   const inputs = doc.querySelectorAll('input');
+  // ラベルが不要な input タイプを除外する
+  const noLabelTypes = ['hidden', 'submit', 'reset', 'button', 'image'];
+  const labelableInputs = Array.from(inputs).filter(inp => {
+    const type = (inp.getAttribute('type') || 'text').toLowerCase();
+    return !noLabelTypes.includes(type);
+  });
   let labelOk = true;
-  if (inputs.length > 0) {
-    labelOk = Array.from(inputs).every(inp => {
+  if (labelableInputs.length > 0) {
+    labelOk = labelableInputs.every(inp => {
       const id = inp.getAttribute('id');
       if (id && doc.querySelector(`label[for="${id}"]`)) return true;
       // label で囲まれているケース
@@ -467,8 +473,8 @@ function gradeHTML(html) {
     });
   }
   addCheck(a11y, '<input> に対応する <label> がある', labelOk, 5,
-    inputs.length === 0
-      ? '（input タグなし・対象外）'
+    labelableInputs.length === 0
+      ? '（label が必要な input タグなし・対象外）'
       : '<input> に対応する <label> がない要素があります。');
 
   const anchors = doc.querySelectorAll('a');
