@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>HTML自動採点ツール</title>
+  <style>
+    /* ===== リセット・基本スタイル ===== */
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Segoe UI', 'Hiragino Sans', 'Meiryo', sans-serif;
+      background: #f0f4f8;
+      color: #2d3748;
+      min-height: 100vh;
+    }
+
+    /* ===== ヘッダー ===== */
+    header {
+      background: linear-gradient(135deg, #2b6cb0, #3182ce);
+      color: #fff;
+      padding: 1.5rem 2rem;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+
+    header h1 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    header p {
+      margin-top: 0.25rem;
+      font-size: 0.9rem;
+      opacity: 0.85;
+    }
+
+    /* ===== メインコンテンツ ===== */
+    main {
+      max-width: 960px;
+      margin: 2rem auto;
+      padding: 0 1rem;
+    }
+
+    /* ===== アップロードエリア ===== */
+    #upload-area {
+      border: 2.5px dashed #90cdf4;
+      border-radius: 12px;
+      background: #fff;
+      padding: 3rem 2rem;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+    }
+
+    #upload-area.drag-over {
+      border-color: #3182ce;
+      background: #ebf8ff;
+    }
+
+    #upload-area .upload-icon {
+      font-size: 3rem;
+      margin-bottom: 0.75rem;
+    }
+
+    #upload-area p {
+      color: #718096;
+      margin-top: 0.5rem;
+      font-size: 0.9rem;
+    }
+
+    #upload-area .upload-hint {
+      font-size: 0.8rem;
+      color: #a0aec0;
+      margin-top: 0.25rem;
+    }
+
+    #file-input {
+      display: none;
+    }
+
+    #select-btn {
+      margin-top: 1rem;
+      padding: 0.6rem 1.5rem;
+      background: #3182ce;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.95rem;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    #select-btn:hover {
+      background: #2b6cb0;
+    }
+
+    /* ===== ファイルリスト ===== */
+    #file-list {
+      margin-top: 1rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+
+    .file-badge {
+      background: #bee3f8;
+      color: #2b6cb0;
+      border-radius: 20px;
+      padding: 0.3rem 0.9rem;
+      font-size: 0.85rem;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .file-badge button {
+      background: none;
+      border: none;
+      color: #2b6cb0;
+      cursor: pointer;
+      font-size: 1rem;
+      line-height: 1;
+      padding: 0;
+    }
+
+    /* ===== 採点ボタン ===== */
+    #grade-btn {
+      display: block;
+      width: 100%;
+      margin-top: 1.25rem;
+      padding: 0.85rem;
+      background: #38a169;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 1.1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    #grade-btn:hover {
+      background: #276749;
+    }
+
+    #grade-btn:disabled {
+      background: #a0aec0;
+      cursor: not-allowed;
+    }
+
+    /* ===== 結果エリア ===== */
+    #results-section {
+      margin-top: 2rem;
+      display: none;
+    }
+
+    #results-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.25rem;
+    }
+
+    #results-header h2 {
+      font-size: 1.35rem;
+      font-weight: 700;
+    }
+
+    #csv-btn {
+      padding: 0.6rem 1.4rem;
+      background: #744210;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    #csv-btn:hover {
+      background: #5c3317;
+    }
+
+    /* ===== カード ===== */
+    .result-card {
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 1rem;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+    }
+
+    .card-filename {
+      font-size: 1.05rem;
+      font-weight: 600;
+      color: #2d3748;
+      word-break: break-all;
+    }
+
+    .card-score {
+      font-size: 2.2rem;
+      font-weight: 800;
+      line-height: 1;
+    }
+
+    .score-100 { color: #276749; }
+    .score-80  { color: #285e61; }
+    .score-60  { color: #744210; }
+    .score-low { color: #c53030; }
+
+    .card-score span {
+      font-size: 1rem;
+      font-weight: 500;
+      color: #718096;
+    }
+
+    /* ===== カテゴリ行 ===== */
+    .categories {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+    }
+
+    .category-item {
+      background: #f7fafc;
+      border-radius: 8px;
+      padding: 0.75rem;
+    }
+
+    .category-label {
+      font-size: 0.8rem;
+      color: #718096;
+      margin-bottom: 0.3rem;
+    }
+
+    .category-score-row {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .category-score {
+      font-weight: 700;
+      font-size: 1.05rem;
+    }
+
+    .cat-full  { color: #276749; }
+    .cat-half  { color: #b7791f; }
+    .cat-low   { color: #c53030; }
+
+    /* ===== チェック項目リスト ===== */
+    .check-list {
+      margin-top: 0.75rem;
+      border-top: 1px solid #e2e8f0;
+      padding-top: 0.75rem;
+    }
+
+    .check-list summary {
+      cursor: pointer;
+      font-size: 0.9rem;
+      color: #4a5568;
+      font-weight: 500;
+      user-select: none;
+    }
+
+    .check-list summary:hover {
+      color: #2d3748;
+    }
+
+    .check-items {
+      margin-top: 0.6rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+
+    .check-item {
+      font-size: 0.85rem;
+      display: flex;
+      align-items: flex-start;
+      gap: 0.4rem;
+    }
+
+    .check-item .icon { flex-shrink: 0; }
+    .check-item .reason { color: #718096; }
+
+    /* ===== フッター ===== */
+    footer {
+      text-align: center;
+      padding: 2rem 1rem;
+      font-size: 0.8rem;
+      color: #a0aec0;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>📝 HTML自動採点ツール</h1>
+  <p>HTMLファイルをアップロードして、コード品質を100点満点で採点します</p>
+</header>
+
+<main>
+  <!-- アップロードエリア -->
+  <div id="upload-area" role="region" aria-label="ファイルアップロードエリア">
+    <div class="upload-icon">📂</div>
+    <p>HTMLファイルをここにドラッグ＆ドロップ</p>
+    <p class="upload-hint">または下のボタンからファイルを選択してください（複数選択可）</p>
+    <button id="select-btn" type="button">ファイルを選択</button>
+    <input type="file" id="file-input" accept=".html,.htm" multiple>
+  </div>
+
+  <!-- 選択済みファイル一覧 -->
+  <div id="file-list" role="list" aria-label="選択済みファイル一覧"></div>
+
+  <!-- 採点ボタン -->
+  <button id="grade-btn" type="button" disabled>採点する</button>
+
+  <!-- 結果エリア -->
+  <section id="results-section" aria-label="採点結果">
+    <div id="results-header">
+      <h2>採点結果</h2>
+      <button id="csv-btn" type="button">📥 CSVエクスポート</button>
+    </div>
+    <div id="results-container"></div>
+  </section>
+</main>
+
+<footer>
+  <p>HTML自動採点ツール — サーバー不要・完全フロントエンド動作</p>
+</footer>
+
+<script>
+'use strict';
+
+/* ============================================================
+   採点ロジック
+   ============================================================ */
+
+/**
+ * HTMLテキストを受け取り、採点結果オブジェクトを返す
+ * @param {string} html - ファイル内容
+ * @returns {object} - 採点結果
+ */
+function gradeHTML(html) {
+  const lines = html.split('\n');
+
+  // DOMParser でパース（ブラウザ内）
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(html, 'text/html');
+
+  const result = {
+    categories: {},
+    total: 0,
+    checks: []   // { label, pass, points, reason }
+  };
+
+  /* ---- ① HTML基本構造（30点） ---- */
+  const struct = { label: 'HTML基本構造', max: 30, score: 0, checks: [] };
+
+  const hasDoctype = /<!doctype\s+html\s*>/i.test(html);
+  addCheck(struct, '<!DOCTYPE html> がある', hasDoctype, 5,
+    '<!DOCTYPE html> 宣言がありません。HTMLファイルの1行目に記述してください。');
+
+  const htmlTag = html.match(/<html([^>]*)>/i);
+  const hasLangInHtml = htmlTag && /lang\s*=/i.test(htmlTag[1]);
+  addCheck(struct, '<html lang=""> がある', !!hasLangInHtml, 5,
+    '<html> タグに lang 属性がありません。例: <html lang="ja">');
+
+  addCheck(struct, '<head> タグがある', !!doc.querySelector('head'), 5,
+    '<head> タグがありません。');
+
+  addCheck(struct, '<body> タグがある', !!doc.querySelector('body'), 5,
+    '<body> タグがありません。');
+
+  const hasMetaCharset = /<meta[^>]+charset/i.test(html);
+  addCheck(struct, '<meta charset> がある', hasMetaCharset, 5,
+    '<meta charset> がありません。例: <meta charset="UTF-8">');
+
+  addCheck(struct, '<title> タグがある', !!doc.querySelector('title'), 5,
+    '<title> タグがありません。');
+
+  result.categories['HTML基本構造'] = struct;
+
+  /* ---- ② セマンティクス（20点） ---- */
+  const sem = { label: 'セマンティクス', max: 20, score: 0, checks: [] };
+
+  const hasHeader = !!doc.querySelector('header');
+  const hasMain   = !!doc.querySelector('main');
+  const hasFooter = !!doc.querySelector('footer');
+  const semanticOk = hasHeader && hasMain && hasFooter;
+  addCheck(sem, '<header> <main> <footer> タグを使っている', semanticOk, 10,
+    `不足しているタグ: ${[!hasHeader && '<header>', !hasMain && '<main>', !hasFooter && '<footer>'].filter(Boolean).join(', ')}`);
+
+  const headings = doc.querySelectorAll('h1,h2,h3,h4,h5,h6');
+  const h1Count = doc.querySelectorAll('h1').length;
+  const headingOk = h1Count <= 1 && isHeadingHierarchyCorrect(headings);
+  addCheck(sem, '見出し階層が正しい（h1が複数ない等）', headingOk, 5,
+    h1Count > 1 ? `<h1> が ${h1Count} 個あります。<h1> は1ページに1つにしてください。` : '見出し階層が飛んでいます（例: h1 の次に h3）。');
+
+  const images = doc.querySelectorAll('img');
+  const imgAltOk = images.length === 0 || Array.from(images).every(img => img.hasAttribute('alt'));
+  addCheck(sem, '<img> タグに alt 属性がある', imgAltOk, 5,
+    images.length === 0
+      ? '（img タグなし・対象外）'
+      : '<img> タグに alt 属性がないものがあります。');
+  // img が0枚の場合は対象外として加点
+  if (images.length === 0) {
+    sem.checks[sem.checks.length - 1].pass = true;
+    sem.score += 5;
+  }
+
+  result.categories['セマンティクス'] = sem;
+
+  /* ---- ③ 可読性（25点） ---- */
+  const read = { label: '可読性', max: 25, score: 0, checks: [] };
+
+  // インデント統一チェック（スペースとタブが混在していないか）
+  const indentedLines = lines.filter(l => /^(\s+)\S/.test(l));
+  const hasSpaceIndent = indentedLines.some(l => /^ /.test(l));
+  const hasTabIndent   = indentedLines.some(l => /^\t/.test(l));
+  const indentOk = !(hasSpaceIndent && hasTabIndent);
+  addCheck(read, 'インデントが統一されている', indentOk, 10,
+    'スペースとタブが混在しています。どちらか一方に統一してください。');
+
+  const longLineOk = lines.every(l => l.length <= 120);
+  addCheck(read, '1行が120文字以内', longLineOk, 5,
+    `120文字を超えている行があります。`);
+
+  const hasComment = /<!--[\s\S]*?-->/.test(html);
+  addCheck(read, 'コメントが1つ以上書かれている', hasComment, 5,
+    'HTMLコメント（<!-- ... -->）が1つもありません。');
+
+  const consecutiveBlankOk = !/((\r?\n){3,})/.test(html);
+  addCheck(read, '連続する空白行が3行以上ない', consecutiveBlankOk, 5,
+    '3行以上連続する空白行があります。');
+
+  result.categories['可読性'] = read;
+
+  /* ---- ④ アクセシビリティ（15点） ---- */
+  const a11y = { label: 'アクセシビリティ', max: 15, score: 0, checks: [] };
+
+  const inputs = doc.querySelectorAll('input');
+  let labelOk = true;
+  if (inputs.length > 0) {
+    labelOk = Array.from(inputs).every(inp => {
+      const id = inp.getAttribute('id');
+      if (id && doc.querySelector(`label[for="${id}"]`)) return true;
+      // label で囲まれているケース
+      return !!inp.closest('label');
+    });
+  }
+  addCheck(a11y, '<input> に対応する <label> がある', labelOk, 5,
+    inputs.length === 0
+      ? '（input タグなし・対象外）'
+      : '<input> に対応する <label> がない要素があります。');
+  if (inputs.length === 0) {
+    a11y.checks[a11y.checks.length - 1].pass = true;
+    a11y.score += 5;
+  }
+
+  const anchors = doc.querySelectorAll('a');
+  const badTexts = ['こちら', 'here', 'click', 'クリック', 'ここ'];
+  let anchorOk = true;
+  Array.from(anchors).forEach(a => {
+    const text = (a.textContent || '').trim().toLowerCase();
+    if (badTexts.some(bad => text === bad.toLowerCase())) anchorOk = false;
+  });
+  addCheck(a11y, '<a> タグのテキストが意味のある内容', anchorOk, 5,
+    '<a> タグのテキストが「こちら」「here」「click」等の不明瞭な文言のみになっています。');
+
+  const langOk = !!hasLangInHtml;
+  addCheck(a11y, '<html> タグに lang 属性がある', langOk, 5,
+    '<html lang="ja"> などの lang 属性を追加してください。');
+
+  result.categories['アクセシビリティ'] = a11y;
+
+  /* ---- ⑤ ベストプラクティス（10点） ---- */
+  const bp = { label: 'ベストプラクティス', max: 10, score: 0, checks: [] };
+
+  const hasInlineStyle = /\bstyle\s*=/i.test(html);
+  addCheck(bp, 'インラインスタイルを使っていない', !hasInlineStyle, 5,
+    'style属性（インラインスタイル）が使われています。外部CSSファイルまたは<style>タグに移してください。');
+
+  const deprecatedTags = ['font', 'center', 'b', 'i', 'u', 'strike', 'marquee'];
+  const usedDeprecated = deprecatedTags.filter(tag =>
+    new RegExp(`<${tag}[\\s>]`, 'i').test(html)
+  );
+  addCheck(bp, '非推奨タグを使っていない', usedDeprecated.length === 0, 5,
+    `非推奨タグが使われています: ${usedDeprecated.map(t => `<${t}>`).join(', ')}`);
+
+  result.categories['ベストプラクティス'] = bp;
+
+  /* ---- スコア集計 ---- */
+  // 各カテゴリのスコア計算（addCheck が加算済みなので合計する）
+  let total = 0;
+  Object.values(result.categories).forEach(cat => {
+    total += cat.score;
+  });
+  result.total = total;
+
+  return result;
+}
+
+/**
+ * チェック結果をカテゴリオブジェクトに追加し、スコアを加算する
+ */
+function addCheck(cat, label, pass, points, reason) {
+  cat.checks.push({ label, pass, points, reason });
+  if (pass) cat.score += points;
+}
+
+/**
+ * 見出し階層の妥当性チェック（h1が最初に来てスキップしていないか）
+ */
+function isHeadingHierarchyCorrect(headings) {
+  if (headings.length === 0) return true;
+  const levels = Array.from(headings).map(h => parseInt(h.tagName[1], 10));
+  for (let i = 1; i < levels.length; i++) {
+    if (levels[i] - levels[i - 1] > 1) return false;
+  }
+  return true;
+}
+
+/* ============================================================
+   UI ロジック
+   ============================================================ */
+
+const uploadArea  = document.getElementById('upload-area');
+const fileInput   = document.getElementById('file-input');
+const selectBtn   = document.getElementById('select-btn');
+const fileList    = document.getElementById('file-list');
+const gradeBtn    = document.getElementById('grade-btn');
+const resultsSection = document.getElementById('results-section');
+const resultsContainer = document.getElementById('results-container');
+const csvBtn      = document.getElementById('csv-btn');
+
+/** 選択されたファイルのマップ（名前 → File） */
+let selectedFiles = new Map();
+
+/** 採点結果の配列 */
+let gradingResults = [];
+
+/* ---- ドラッグ＆ドロップ ---- */
+uploadArea.addEventListener('dragover', e => {
+  e.preventDefault();
+  uploadArea.classList.add('drag-over');
+});
+
+uploadArea.addEventListener('dragleave', () => {
+  uploadArea.classList.remove('drag-over');
+});
+
+uploadArea.addEventListener('drop', e => {
+  e.preventDefault();
+  uploadArea.classList.remove('drag-over');
+  addFiles(e.dataTransfer.files);
+});
+
+uploadArea.addEventListener('click', e => {
+  if (e.target === selectBtn || e.target === fileInput) return;
+  fileInput.click();
+});
+
+selectBtn.addEventListener('click', e => {
+  e.stopPropagation();
+  fileInput.click();
+});
+
+fileInput.addEventListener('change', () => {
+  addFiles(fileInput.files);
+  fileInput.value = '';
+});
+
+/**
+ * ファイルリストに追加する
+ * @param {FileList} files
+ */
+function addFiles(files) {
+  Array.from(files).forEach(file => {
+    if (/\.html?$/i.test(file.name)) {
+      selectedFiles.set(file.name, file);
+    }
+  });
+  renderFileList();
+  gradeBtn.disabled = selectedFiles.size === 0;
+}
+
+/**
+ * ファイルバッジを描画する
+ */
+function renderFileList() {
+  fileList.innerHTML = '';
+  selectedFiles.forEach((file, name) => {
+    const badge = document.createElement('div');
+    badge.className = 'file-badge';
+    badge.setAttribute('role', 'listitem');
+    badge.innerHTML = `
+      <span>📄 ${escapeHtml(name)}</span>
+      <button type="button" aria-label="${escapeHtml(name)} を削除" data-name="${escapeHtml(name)}">✕</button>
+    `;
+    badge.querySelector('button').addEventListener('click', () => {
+      selectedFiles.delete(name);
+      renderFileList();
+      gradeBtn.disabled = selectedFiles.size === 0;
+    });
+    fileList.appendChild(badge);
+  });
+}
+
+/* ---- 採点ボタン ---- */
+gradeBtn.addEventListener('click', async () => {
+  gradeBtn.disabled = true;
+  gradeBtn.textContent = '採点中...';
+  gradingResults = [];
+  resultsContainer.innerHTML = '';
+
+  for (const [name, file] of selectedFiles) {
+    const html = await readFileAsText(file);
+    const result = gradeHTML(html);
+    result.filename = name;
+    gradingResults.push(result);
+    resultsContainer.appendChild(buildCard(result));
+  }
+
+  resultsSection.style.display = 'block';
+  resultsSection.scrollIntoView({ behavior: 'smooth' });
+  gradeBtn.disabled = false;
+  gradeBtn.textContent = '採点する';
+});
+
+/**
+ * FileReader を Promise 化する
+ */
+function readFileAsText(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = e => resolve(e.target.result);
+    reader.onerror = () => reject(new Error(`ファイル読み込みエラー: ${file.name}`));
+    reader.readAsText(file);
+  });
+}
+
+/* ---- カード生成 ---- */
+function buildCard(result) {
+  const card = document.createElement('article');
+  card.className = 'result-card';
+
+  const scoreClass = result.total >= 90 ? 'score-100'
+                   : result.total >= 70 ? 'score-80'
+                   : result.total >= 50 ? 'score-60'
+                   : 'score-low';
+
+  // ヘッダー行
+  const header = document.createElement('div');
+  header.className = 'card-header';
+  header.innerHTML = `
+    <div class="card-filename">📄 ${escapeHtml(result.filename)}</div>
+    <div class="card-score ${scoreClass}">${result.total}<span> / 100点</span></div>
+  `;
+  card.appendChild(header);
+
+  // カテゴリグリッド
+  const catGrid = document.createElement('div');
+  catGrid.className = 'categories';
+  Object.values(result.categories).forEach(cat => {
+    const ratio = cat.score / cat.max;
+    const cls = ratio >= 1 ? 'cat-full' : ratio >= 0.5 ? 'cat-half' : 'cat-low';
+    const icon = ratio >= 1 ? '✅' : ratio >= 0.5 ? '⚠️' : '❌';
+    const item = document.createElement('div');
+    item.className = 'category-item';
+    item.innerHTML = `
+      <div class="category-label">${escapeHtml(cat.label)}</div>
+      <div class="category-score-row">
+        <span>${icon}</span>
+        <span class="category-score ${cls}">${cat.score} / ${cat.max}点</span>
+      </div>
+    `;
+    catGrid.appendChild(item);
+  });
+  card.appendChild(catGrid);
+
+  // チェック詳細（折りたたみ）
+  const details = document.createElement('details');
+  details.className = 'check-list';
+  const summary = document.createElement('summary');
+  summary.textContent = '▶ チェック項目の詳細を見る';
+  details.appendChild(summary);
+
+  const itemsDiv = document.createElement('div');
+  itemsDiv.className = 'check-items';
+
+  Object.values(result.categories).forEach(cat => {
+    const catTitle = document.createElement('div');
+    catTitle.style.cssText = 'font-weight:600;font-size:0.85rem;margin-top:0.5rem;color:#4a5568;';
+    catTitle.textContent = `【${cat.label}】`;
+    itemsDiv.appendChild(catTitle);
+
+    cat.checks.forEach(chk => {
+      const div = document.createElement('div');
+      div.className = 'check-item';
+      const icon = chk.pass ? '✅' : '❌';
+      const reasonText = chk.pass ? '' : `<span class="reason"> — ${escapeHtml(chk.reason)}</span>`;
+      div.innerHTML = `<span class="icon">${icon}</span><span>${escapeHtml(chk.label)}</span>${reasonText}`;
+      itemsDiv.appendChild(div);
+    });
+  });
+
+  details.appendChild(itemsDiv);
+  card.appendChild(details);
+
+  return card;
+}
+
+/* ---- CSV エクスポート ---- */
+csvBtn.addEventListener('click', () => {
+  if (gradingResults.length === 0) return;
+
+  const headers = ['ファイル名', '合計点', 'HTML基本構造', 'セマンティクス', '可読性', 'アクセシビリティ', 'ベストプラクティス', '減点理由まとめ'];
+
+  const rows = gradingResults.map(r => {
+    const reasons = [];
+    Object.values(r.categories).forEach(cat => {
+      cat.checks.forEach(chk => {
+        if (!chk.pass) reasons.push(chk.reason);
+      });
+    });
+    return [
+      r.filename,
+      r.total,
+      r.categories['HTML基本構造'].score,
+      r.categories['セマンティクス'].score,
+      r.categories['可読性'].score,
+      r.categories['アクセシビリティ'].score,
+      r.categories['ベストプラクティス'].score,
+      reasons.join(' / ')
+    ].map(csvEscape).join(',');
+  });
+
+  const bom = '\uFEFF'; // Excel用BOM
+  const csv = bom + [headers.map(csvEscape).join(','), ...rows].join('\r\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'html_grading_results.csv';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+});
+
+/* ---- ユーティリティ ---- */
+
+/**
+ * HTML エスケープ
+ */
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+/**
+ * CSV セル値のエスケープ（ダブルクォートで囲む）
+ */
+function csvEscape(value) {
+  const str = String(value);
+  if (str.includes(',') || str.includes('"') || str.includes('\n') || str.includes('\r')) {
+    return '"' + str.replace(/"/g, '""') + '"';
+  }
+  return str;
+}
+</script>
+
+</body>
+</html>
