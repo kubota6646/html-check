@@ -388,7 +388,7 @@ function gradeHTML(html) {
   addCheck(struct, '<body> タグがある', !!doc.querySelector('body'), 5,
     '<body> タグがありません。');
 
-  const hasMetaCharset = /<meta[^>]+charset/i.test(html);
+  const hasMetaCharset = /<meta[^>]+charset\s*=/i.test(html);
   addCheck(struct, '<meta charset> がある', hasMetaCharset, 5,
     '<meta charset> がありません。例: <meta charset="UTF-8">');
 
@@ -414,7 +414,9 @@ function gradeHTML(html) {
     ? `<h1> が ${h1Count} 個あります。<h1> は1ページに1つにしてください。`
     : headings.length > 0 && h1Count === 0
       ? '<h1> タグがありません。ページのメインタイトルに <h1> を使ってください。'
-      : '見出し階層が飛んでいます（例: h1 の次に h3）。';
+      : headings.length > 0 && parseInt(headings[0].tagName[1], 10) !== 1
+        ? '<h1> が最初の見出しになっていません。ページ最初の見出しを <h1> にしてください。'
+        : '見出し階層が飛んでいます（例: h1 の次に h3）。';
   addCheck(sem, '見出し階層が正しい（h1が複数ない等）', headingOk, 5, headingReason);
 
   const images = doc.querySelectorAll('img');
@@ -527,6 +529,7 @@ function addCheck(cat, label, pass, points, reason) {
 function isHeadingHierarchyCorrect(headings) {
   if (headings.length === 0) return true;
   const levels = Array.from(headings).map(h => parseInt(h.tagName[1], 10));
+  if (levels[0] !== 1) return false;
   for (let i = 1; i < levels.length; i++) {
     if (levels[i] - levels[i - 1] > 1) return false;
   }
