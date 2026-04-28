@@ -358,7 +358,7 @@
  * @returns {object} - 採点結果
  */
 function gradeHTML(html) {
-  const lines = html.split('\n');
+  const lines = html.split(/\r?\n/);
 
   // DOMParser でパース（ブラウザ内）
   const parser = new DOMParser();
