@@ -381,8 +381,7 @@ function gradeHTML(html) {
 
   const result = {
     categories: {},
-    total: 0,
-    checks: []   // { label, pass, points, reason }
+    total: 0
   };
 
   /* ---- ① HTML基本構造（30点） ---- */
@@ -400,11 +399,14 @@ function gradeHTML(html) {
     `${htmlTagLineNum ? htmlTagLineNum + '行目: ' : ''}<html> タグに lang 属性がありません。例: <html lang="ja">`,
     `${htmlTagLineNum ? htmlTagLineNum + '行目の ' : ''}<html> タグを次のように変更してください：\n<html lang="ja">`);
 
-  addCheck(struct, '<head> タグがある', !!doc.querySelector('head'), 5,
+  // DOMParser は <head> と <body> を自動補完するため、元の文字列に対して正規表現で確認する
+  const hasHead = /<head[\s>]/i.test(html);
+  addCheck(struct, '<head> タグがある', hasHead, 5,
     '<head> タグがありません。',
     '<html> タグの直後に <head> セクションを追加してください：\n<head>\n  <meta charset="UTF-8">\n  <title>ページタイトル</title>\n</head>');
 
-  addCheck(struct, '<body> タグがある', !!doc.querySelector('body'), 5,
+  const hasBody = /<body[\s>]/i.test(html);
+  addCheck(struct, '<body> タグがある', hasBody, 5,
     '<body> タグがありません。',
     '</head> タグの直後に <body> セクションを追加してください：\n<body>\n  <!-- ページのコンテンツをここに書く -->\n</body>');
 
@@ -909,7 +911,8 @@ csvBtn.addEventListener('click', () => {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  // ダウンロード開始後に解放する（即時解放するとブラウザによってはダウンロードが中断される）
+  setTimeout(() => URL.revokeObjectURL(url), 100);
 });
 
 /* ---- ユーティリティ ---- */
@@ -922,7 +925,8 @@ function escapeHtml(str) {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 /**
