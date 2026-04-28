@@ -409,9 +409,13 @@ function gradeHTML(html) {
 
   const headings = doc.querySelectorAll('h1,h2,h3,h4,h5,h6');
   const h1Count = doc.querySelectorAll('h1').length;
-  const headingOk = h1Count <= 1 && isHeadingHierarchyCorrect(headings);
-  addCheck(sem, '見出し階層が正しい（h1が複数ない等）', headingOk, 5,
-    h1Count > 1 ? `<h1> が ${h1Count} 個あります。<h1> は1ページに1つにしてください。` : '見出し階層が飛んでいます（例: h1 の次に h3）。');
+  const headingOk = (headings.length === 0 || h1Count === 1) && isHeadingHierarchyCorrect(headings);
+  const headingReason = h1Count > 1
+    ? `<h1> が ${h1Count} 個あります。<h1> は1ページに1つにしてください。`
+    : headings.length > 0 && h1Count === 0
+      ? '<h1> タグがありません。ページのメインタイトルに <h1> を使ってください。'
+      : '見出し階層が飛んでいます（例: h1 の次に h3）。';
+  addCheck(sem, '見出し階層が正しい（h1が複数ない等）', headingOk, 5, headingReason);
 
   const images = doc.querySelectorAll('img');
   const imgAltOk = images.length === 0 || Array.from(images).every(img => img.hasAttribute('alt'));
