@@ -441,7 +441,7 @@ function gradeHTML(html) {
   addCheck(read, 'コメントが1つ以上書かれている', hasComment, 5,
     'HTMLコメント（<!-- ... -->）が1つもありません。');
 
-  const consecutiveBlankOk = !/((\r?\n){3,})/.test(html);
+  const consecutiveBlankOk = !/((\r?\n){4,})/.test(html);
   addCheck(read, '連続する空白行が3行以上ない', consecutiveBlankOk, 5,
     '3行以上連続する空白行があります。');
 
@@ -553,8 +553,10 @@ uploadArea.addEventListener('dragover', e => {
   uploadArea.classList.add('drag-over');
 });
 
-uploadArea.addEventListener('dragleave', () => {
-  uploadArea.classList.remove('drag-over');
+uploadArea.addEventListener('dragleave', e => {
+  if (!uploadArea.contains(e.relatedTarget)) {
+    uploadArea.classList.remove('drag-over');
+  }
 });
 
 uploadArea.addEventListener('drop', e => {
@@ -621,18 +623,23 @@ gradeBtn.addEventListener('click', async () => {
   gradingResults = [];
   resultsContainer.innerHTML = '';
 
-  for (const [name, file] of selectedFiles) {
-    const html = await readFileAsText(file);
-    const result = gradeHTML(html);
-    result.filename = name;
-    gradingResults.push(result);
-    resultsContainer.appendChild(buildCard(result));
-  }
+  try {
+    for (const [name, file] of selectedFiles) {
+      const html = await readFileAsText(file);
+      const result = gradeHTML(html);
+      result.filename = name;
+      gradingResults.push(result);
+      resultsContainer.appendChild(buildCard(result));
+    }
 
-  resultsSection.style.display = 'block';
-  resultsSection.scrollIntoView({ behavior: 'smooth' });
-  gradeBtn.disabled = false;
-  gradeBtn.textContent = '採点する';
+    resultsSection.style.display = 'block';
+    resultsSection.scrollIntoView({ behavior: 'smooth' });
+  } catch (err) {
+    alert(`採点中にエラーが発生しました: ${err.message}`);
+  } finally {
+    gradeBtn.disabled = false;
+    gradeBtn.textContent = '採点する';
+  }
 });
 
 /**
