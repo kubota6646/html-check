@@ -1081,17 +1081,16 @@ xlsxBtn.addEventListener('click', () => {
 
   // ===== シート1: サマリー =====
   // 列構成:
-  // col 0: ファイル名, col 1: 合計点, col 2: 達成率, col 3: 評価,
-  // col 4+ki*2: カテゴリ[ki] 得点, col 5+ki*2: カテゴリ[ki] 満点,
+  // col 0: ファイル名, col 1: 合計点, col 2: 評価,
+  // col 3+ki*2: カテゴリ[ki] 得点, col 4+ki*2: カテゴリ[ki] 満点,
   // SUMMARY_FAILED_COL: 未達成チェック項目, SUMMARY_SUGGEST_COL: 改善提案
-  const SUMMARY_CAT_START  = 4;
+  const SUMMARY_CAT_START  = 3;
   const SUMMARY_FAILED_COL = SUMMARY_CAT_START + CAT_KEYS.length * 2;
   const SUMMARY_SUGGEST_COL = SUMMARY_FAILED_COL + 1;
 
   const summaryHeaders = [
     'ファイル名',
     '合計点',
-    '達成率',
     '評価',
     ...CAT_KEYS.flatMap(key => {
       const cat = firstResult.categories[key];
@@ -1107,7 +1106,6 @@ xlsxBtn.addEventListener('click', () => {
     return [
       r.filename,
       r.total,
-      `${r.total}%`,
       getGrade(r.total, 100),
       ...CAT_KEYS.flatMap(key => {
         const cat = r.categories[key];
@@ -1126,7 +1124,7 @@ xlsxBtn.addEventListener('click', () => {
 
   function catStatsRow(label, aggFn, totalVal) {
     return [
-      label, totalVal, `${totalVal}%`, getGrade(totalVal, 100),
+      label, totalVal, getGrade(totalVal, 100),
       ...CAT_KEYS.flatMap(key => {
         const vals   = gradingResults.map(r => r.categories[key]?.score ?? 0);
         const catMax = firstResult.categories[key]?.max ?? 0;
@@ -1149,14 +1147,21 @@ xlsxBtn.addEventListener('click', () => {
   summarySheet['!cols'] = [
     { wch: 32 },  // ファイル名
     { wch: 8 },   // 合計点
-    { wch: 8 },   // 達成率
     { wch: 6 },   // 評価
     ...CAT_KEYS.flatMap(() => [{ wch: 16 }, { wch: 6 }]),
-    { wch: 60 },  // 未達成チェック項目
-    { wch: 60 }   // 改善提案
+    { wch: 90 },  // 未達成チェック項目
+    { wch: 70 }   // 改善提案
   ];
 
-  summarySheet['!rows'] = [{ hpt: 36 }];  // ヘッダー行を高く
+  // 行高さ（ヘッダー固定 + データ行は内容行数に応じて動的に設定）
+  const summaryRowHeights = [{ hpt: 36 }];
+  summaryRows.forEach((row, rowIdx) => {
+    const failedLines  = row[SUMMARY_FAILED_COL]  ? String(row[SUMMARY_FAILED_COL]).split('\n').length  : 1;
+    const suggestLines = row[SUMMARY_SUGGEST_COL] ? String(row[SUMMARY_SUGGEST_COL]).split('\n').length : 1;
+    const lines = Math.max(failedLines, suggestLines, 1);
+    summaryRowHeights[rowIdx + 1] = { hpt: Math.max(32, lines * 18) };
+  });
+  summarySheet['!rows'] = summaryRowHeights;
 
   // 先頭行とファイル名列をフリーズ
   summarySheet['!freeze'] = { xSplit: 1, ySplit: 1 };
@@ -1181,11 +1186,8 @@ xlsxBtn.addEventListener('click', () => {
     const totalCell = summarySheet[XLSX.utils.encode_cell({ r, c: 1 })];
     if (totalCell) totalCell.s = scoreStyle(row[1], 100, zebra);
 
-    const pctCell = summarySheet[XLSX.utils.encode_cell({ r, c: 2 })];
-    if (pctCell) pctCell.s = scoreStyle(row[1], 100, zebra);
-
-    const gradeCell = summarySheet[XLSX.utils.encode_cell({ r, c: 3 })];
-    if (gradeCell) gradeCell.s = gradeStyle(row[3]);
+    const gradeCell = summarySheet[XLSX.utils.encode_cell({ r, c: 2 })];
+    if (gradeCell) gradeCell.s = gradeStyle(row[2]);
 
     CAT_KEYS.forEach((_, ki) => {
       const scoreCol = SUMMARY_CAT_START + ki * 2;
@@ -1216,11 +1218,8 @@ xlsxBtn.addEventListener('click', () => {
     const totalCell = summarySheet[XLSX.utils.encode_cell({ r, c: 1 })];
     if (totalCell) totalCell.s = scoreStyle(row[1], 100);
 
-    const pctCell = summarySheet[XLSX.utils.encode_cell({ r, c: 2 })];
-    if (pctCell) pctCell.s = scoreStyle(row[1], 100);
-
-    const gradeCell = summarySheet[XLSX.utils.encode_cell({ r, c: 3 })];
-    if (gradeCell) gradeCell.s = gradeStyle(row[3]);
+    const gradeCell = summarySheet[XLSX.utils.encode_cell({ r, c: 2 })];
+    if (gradeCell) gradeCell.s = gradeStyle(row[2]);
 
     CAT_KEYS.forEach((_, ki) => {
       const scoreCol = SUMMARY_CAT_START + ki * 2;
@@ -1487,7 +1486,7 @@ xlsxBtn.addEventListener('click', () => {
   XLSX.utils.book_append_sheet(wb, detailSheet, 'チェック詳細');
   XLSX.utils.book_append_sheet(wb, statsSheet, '統計レポート');
 
-  XLSX.writeFile(wb, 'html_grading_results.xlsx');
+  XLSX.writeFile(wb, 'html_grading_results.xlsx', { cellStyles: true });
 });
 
 /* ---- ユーティリティ ---- */
