@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>HTML自動採点ツール</title>
+  <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js" integrity="sha384-OLBgp1GsljhM2TJ+sbHjaiH9txEUvgdDTAzHv2P24donTt6/529l+9Ua0vFImLlb" crossorigin="anonymous"></script>
   <style>
     /* ===== リセット・基本スタイル ===== */
     *, *::before, *::after {
@@ -171,9 +172,14 @@
       font-weight: 700;
     }
 
-    #csv-btn {
+    .export-buttons {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    #csv-btn, #xlsx-btn {
       padding: 0.6rem 1.4rem;
-      background: #744210;
       color: #fff;
       border: none;
       border-radius: 6px;
@@ -182,8 +188,20 @@
       transition: background 0.2s;
     }
 
+    #csv-btn {
+      background: #744210;
+    }
+
     #csv-btn:hover {
       background: #5c3317;
+    }
+
+    #xlsx-btn {
+      background: #276749;
+    }
+
+    #xlsx-btn:hover {
+      background: #1e4e37;
     }
 
     /* ===== カード ===== */
@@ -350,7 +368,10 @@
   <section id="results-section" aria-label="採点結果">
     <div id="results-header">
       <h2>採点結果</h2>
-      <button id="csv-btn" type="button">📥 CSVエクスポート</button>
+      <div class="export-buttons">
+        <button id="csv-btn" type="button">📥 CSVエクスポート</button>
+        <button id="xlsx-btn" type="button">📊 Excelエクスポート</button>
+      </div>
     </div>
     <div id="results-container"></div>
   </section>
@@ -687,6 +708,7 @@ const gradeBtn    = document.getElementById('grade-btn');
 const resultsSection = document.getElementById('results-section');
 const resultsContainer = document.getElementById('results-container');
 const csvBtn      = document.getElementById('csv-btn');
+const xlsxBtn     = document.getElementById('xlsx-btn');
 
 /** 選択されたファイルのマップ（名前 → File） */
 let selectedFiles = new Map();
@@ -875,28 +897,55 @@ function buildCard(result) {
   return card;
 }
 
+/* ============================================================
+   エクスポート共通ユーティリティ
+   ============================================================ */
+
+/** カテゴリキー（採点ロジックで定義された順序に合わせる） */
+const CAT_KEYS = ['HTML基本構造', 'セマンティクス', '可読性', 'アクセシビリティ', 'ベストプラクティス'];
+
+/**
+ * 採点結果1件から未達成チェック項目と改善提案の文字列を生成する。
+ * @param {object} r - 採点結果オブジェクト
+ * @returns {{ failedChecks: string, suggestions: string }}
+ */
+function buildFailureTexts(r) {
+  const failedChecks = [];
+  const suggestions = [];
+  Object.values(r.categories).forEach(cat => {
+    cat.checks.forEach(chk => {
+      if (!chk.pass) {
+        failedChecks.push(`[${cat.label}] ${chk.label}: ${chk.reason}`);
+        if (chk.suggestion) suggestions.push(`[${cat.label}] ${chk.suggestion}`);
+      }
+    });
+  });
+  return { failedChecks: failedChecks.join('\n'), suggestions: suggestions.join('\n') };
+}
+
 /* ---- CSV エクスポート ---- */
 csvBtn.addEventListener('click', () => {
   if (gradingResults.length === 0) return;
 
-  const headers = ['ファイル名', '合計点', 'HTML基本構造', 'セマンティクス', '可読性', 'アクセシビリティ', 'ベストプラクティス', '減点理由まとめ'];
+  const firstResult = gradingResults[0];
+  const catHeaders = CAT_KEYS.map(key => {
+    const cat = firstResult.categories[key];
+    return cat ? `${cat.label}（${cat.max}点満点）` : key;
+  });
+
+  const headers = ['ファイル名', '合計点（100点満点）', ...catHeaders, '未達成チェック項目', '改善提案'];
 
   const rows = gradingResults.map(r => {
-    const reasons = [];
-    Object.values(r.categories).forEach(cat => {
-      cat.checks.forEach(chk => {
-        if (!chk.pass) reasons.push(chk.reason);
-      });
-    });
+    const { failedChecks, suggestions } = buildFailureTexts(r);
     return [
       r.filename,
       r.total,
-      r.categories['HTML基本構造'].score,
-      r.categories['セマンティクス'].score,
-      r.categories['可読性'].score,
-      r.categories['アクセシビリティ'].score,
-      r.categories['ベストプラクティス'].score,
-      reasons.join(' / ')
+      ...CAT_KEYS.map(key => {
+        const cat = r.categories[key];
+        return cat ? `${cat.score} / ${cat.max}` : '';
+      }),
+      failedChecks,
+      suggestions
     ].map(csvEscape).join(',');
   });
 
@@ -911,9 +960,189 @@ csvBtn.addEventListener('click', () => {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  // ダウンロード開始後に解放する（即時解放するとブラウザによってはダウンロードが中断される）
   setTimeout(() => URL.revokeObjectURL(url), 100);
 });
+
+/* ---- Excel（XLSX）エクスポート ---- */
+xlsxBtn.addEventListener('click', () => {
+  if (gradingResults.length === 0) return;
+
+  const firstResult = gradingResults[0];
+
+  // サマリーシートのカラム構成
+  // col 0: ファイル名, col 1: 合計点, col 2: 満点,
+  // col 3+ki*2: カテゴリ[ki] 得点, col 4+ki*2: カテゴリ[ki] 満点,
+  // col 3+CAT_KEYS.length*2: 未達成チェック項目, col 4+CAT_KEYS.length*2: 改善提案
+  const SUMMARY_FAILED_COL = 3 + CAT_KEYS.length * 2;
+  const SUMMARY_SUGGEST_COL = SUMMARY_FAILED_COL + 1;
+
+  // ---- シート1: サマリー ----
+  const summaryHeaders = [
+    'ファイル名',
+    '合計点',
+    '満点',
+    ...CAT_KEYS.flatMap(key => {
+      const cat = firstResult.categories[key];
+      const label = cat ? cat.label : key;
+      return [`${label} 得点`, `${label} 満点`];
+    }),
+    '未達成チェック項目',
+    '改善提案'
+  ];
+
+  const summaryRows = gradingResults.map(r => {
+    const { failedChecks, suggestions } = buildFailureTexts(r);
+    return [
+      r.filename,
+      r.total,
+      100,
+      ...CAT_KEYS.flatMap(key => {
+        const cat = r.categories[key];
+        return cat ? [cat.score, cat.max] : [0, 0];
+      }),
+      failedChecks,
+      suggestions
+    ];
+  });
+
+  const summaryData = [summaryHeaders, ...summaryRows];
+  const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
+
+  // カラム幅設定
+  const CAT_SCORE_WIDTH = 16;
+  const CAT_MAX_WIDTH = 8;
+  summarySheet['!cols'] = [
+    { wch: 30 },  // ファイル名
+    { wch: 8 },   // 合計点
+    { wch: 6 },   // 満点
+    ...CAT_KEYS.flatMap(() => [{ wch: CAT_SCORE_WIDTH }, { wch: CAT_MAX_WIDTH }]),
+    { wch: 60 },  // 未達成チェック項目
+    { wch: 60 }   // 改善提案
+  ];
+
+  // ヘッダー行のスタイル
+  const headerStyle = {
+    font: { bold: true, color: { rgb: 'FFFFFF' } },
+    fill: { fgColor: { rgb: '2B6CB0' } },
+    alignment: { horizontal: 'center', wrapText: true }
+  };
+  summaryHeaders.forEach((_, colIdx) => {
+    const cellRef = XLSX.utils.encode_cell({ r: 0, c: colIdx });
+    if (summarySheet[cellRef]) {
+      summarySheet[cellRef].s = headerStyle;
+    }
+  });
+
+  // データ行のスコアセルにカラーを適用
+  summaryRows.forEach((row, rowIdx) => {
+    const r = rowIdx + 1; // 0行目がヘッダーなのでオフセット
+    // 合計点セル (col 1)
+    const totalCell = summarySheet[XLSX.utils.encode_cell({ r, c: 1 })];
+    if (totalCell) {
+      totalCell.s = {
+        fill: { fgColor: { rgb: scoreColor(row[1], 100) } },
+        alignment: { horizontal: 'center' }
+      };
+    }
+    // カテゴリ得点セル
+    CAT_KEYS.forEach((_, ki) => {
+      const scoreCol = 3 + ki * 2;
+      const maxCol   = 4 + ki * 2;
+      const scoreCellRef = XLSX.utils.encode_cell({ r, c: scoreCol });
+      if (summarySheet[scoreCellRef]) {
+        summarySheet[scoreCellRef].s = {
+          fill: { fgColor: { rgb: scoreColor(row[scoreCol], row[maxCol]) } },
+          alignment: { horizontal: 'center' }
+        };
+      }
+    });
+    // 未達成・提案セルは折り返し
+    [SUMMARY_FAILED_COL, SUMMARY_SUGGEST_COL].forEach(c => {
+      const cellRef = XLSX.utils.encode_cell({ r, c });
+      if (summarySheet[cellRef]) {
+        summarySheet[cellRef].s = { alignment: { wrapText: true, vertical: 'top' } };
+      }
+    });
+  });
+
+  // ---- シート2: チェック詳細 ----
+  const detailHeaders = ['ファイル名', 'カテゴリ', 'チェック項目', '配点', '結果', '理由・改善提案'];
+  const detailRows = [];
+  gradingResults.forEach(res => {
+    Object.values(res.categories).forEach(cat => {
+      cat.checks.forEach(chk => {
+        detailRows.push([
+          res.filename,
+          cat.label,
+          chk.label,
+          chk.points,
+          chk.pass ? '✅ 合格' : '❌ 未達成',
+          chk.pass ? '' : `${chk.reason}${chk.suggestion ? '\n💡 ' + chk.suggestion : ''}`
+        ]);
+      });
+    });
+  });
+
+  const detailData = [detailHeaders, ...detailRows];
+  const detailSheet = XLSX.utils.aoa_to_sheet(detailData);
+
+  detailSheet['!cols'] = [
+    { wch: 30 }, // ファイル名
+    { wch: 20 }, // カテゴリ
+    { wch: 35 }, // チェック項目
+    { wch: 6 },  // 配点
+    { wch: 10 }, // 結果
+    { wch: 70 }  // 理由・改善提案
+  ];
+
+  // ヘッダー行スタイル
+  detailHeaders.forEach((_, colIdx) => {
+    const cellRef = XLSX.utils.encode_cell({ r: 0, c: colIdx });
+    if (detailSheet[cellRef]) {
+      detailSheet[cellRef].s = headerStyle;
+    }
+  });
+
+  // データ行スタイル
+  const DETAIL_RESULT_COL = 4;
+  const DETAIL_REASON_COL = 5;
+  detailRows.forEach((row, rowIdx) => {
+    const r = rowIdx + 1;
+    const pass = row[DETAIL_RESULT_COL] === '✅ 合格';
+    const resultCellRef = XLSX.utils.encode_cell({ r, c: DETAIL_RESULT_COL });
+    if (detailSheet[resultCellRef]) {
+      detailSheet[resultCellRef].s = {
+        fill: { fgColor: { rgb: pass ? 'C6EFCE' : 'FFC7CE' } },
+        font: { color: { rgb: pass ? '276749' : 'C53030' } },
+        alignment: { horizontal: 'center' }
+      };
+    }
+    const reasonCellRef = XLSX.utils.encode_cell({ r, c: DETAIL_REASON_COL });
+    if (detailSheet[reasonCellRef]) {
+      detailSheet[reasonCellRef].s = { alignment: { wrapText: true, vertical: 'top' } };
+    }
+  });
+
+  // ワークブック作成
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, summarySheet, 'サマリー');
+  XLSX.utils.book_append_sheet(wb, detailSheet, 'チェック詳細');
+
+  XLSX.writeFile(wb, 'html_grading_results.xlsx');
+});
+
+/**
+ * スコア割合に応じた背景色（ARGB 16進数文字列）を返す
+ * @param {number} score
+ * @param {number} max
+ * @returns {string}
+ */
+function scoreColor(score, max) {
+  const ratio = max > 0 ? score / max : 0;
+  if (ratio >= 0.9) return 'C6EFCE'; // 緑（高得点）
+  if (ratio >= 0.7) return 'FFEB9C'; // 黄（中得点）
+  return 'FFC7CE';                    // 赤（低得点）
+}
 
 /* ---- ユーティリティ ---- */
 
