@@ -412,12 +412,16 @@ function gradeHTML(html) {
   const h1Count = doc.querySelectorAll('h1').length;
   const headingOk = (headings.length === 0 || h1Count === 1) && isHeadingHierarchyCorrect(headings);
   const h1Lines = findAllLines(lines, /<h1[\s>]/i);
+  const firstHeadingTagName = headings.length > 0 ? headings[0].tagName.toLowerCase() : '';
+  const firstHeadingLine = firstHeadingTagName
+    ? findLine(lines, new RegExp(`<${firstHeadingTagName}[\\s>]`, 'i'))
+    : null;
   const headingReason = h1Count > 1
     ? `<h1> が ${h1Count} 個あります。<h1> は1ページに1つにしてください${lineRef(h1Lines)}`
     : headings.length > 0 && h1Count === 0
       ? '<h1> タグがありません。ページのメインタイトルに <h1> を使ってください。'
       : headings.length > 0 && parseInt(headings[0].tagName[1], 10) !== 1
-        ? (() => { const firstHeadingLine = findLine(lines, new RegExp(`<${headings[0].tagName.toLowerCase()}[\\s>]`, 'i')); return `<h1> が最初の見出しになっていません。ページ最初の見出しを <h1> にしてください${firstHeadingLine ? `（${firstHeadingLine}行目）` : ''}`; })()
+        ? `<h1> が最初の見出しになっていません。ページ最初の見出しを <h1> にしてください${firstHeadingLine ? `（${firstHeadingLine}行目）` : ''}`
         : '見出し階層が飛んでいます（例: h1 の次に h3）。';
   addCheck(sem, '見出し階層が正しい（h1が複数ない等）', headingOk, 5, headingReason);
 
