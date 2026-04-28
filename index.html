@@ -419,11 +419,6 @@ function gradeHTML(html) {
     images.length === 0
       ? '（img タグなし・対象外）'
       : '<img> タグに alt 属性がないものがあります。');
-  // img が0枚の場合は対象外として加点
-  if (images.length === 0) {
-    sem.checks[sem.checks.length - 1].pass = true;
-    sem.score += 5;
-  }
 
   result.categories['セマンティクス'] = sem;
 
@@ -469,10 +464,6 @@ function gradeHTML(html) {
     inputs.length === 0
       ? '（input タグなし・対象外）'
       : '<input> に対応する <label> がない要素があります。');
-  if (inputs.length === 0) {
-    a11y.checks[a11y.checks.length - 1].pass = true;
-    a11y.score += 5;
-  }
 
   const anchors = doc.querySelectorAll('a');
   const badTexts = ['こちら', 'here', 'click', 'クリック', 'ここ'];
@@ -493,11 +484,11 @@ function gradeHTML(html) {
   /* ---- ⑤ ベストプラクティス（10点） ---- */
   const bp = { label: 'ベストプラクティス', max: 10, score: 0, checks: [] };
 
-  const hasInlineStyle = /\bstyle\s*=/i.test(html);
+  const hasInlineStyle = doc.querySelectorAll('[style]').length > 0;
   addCheck(bp, 'インラインスタイルを使っていない', !hasInlineStyle, 5,
     'style属性（インラインスタイル）が使われています。外部CSSファイルまたは<style>タグに移してください。');
 
-  const deprecatedTags = ['font', 'center', 'b', 'i', 'u', 'strike', 'marquee'];
+  const deprecatedTags = ['font', 'center', 'strike', 'marquee'];
   const usedDeprecated = deprecatedTags.filter(tag =>
     new RegExp(`<${tag}[\\s>]`, 'i').test(html)
   );
