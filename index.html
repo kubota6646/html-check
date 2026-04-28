@@ -969,18 +969,130 @@ xlsxBtn.addEventListener('click', () => {
 
   const firstResult = gradingResults[0];
 
-  // サマリーシートのカラム構成
-  // col 0: ファイル名, col 1: 合計点, col 2: 満点,
-  // col 3+ki*2: カテゴリ[ki] 得点, col 4+ki*2: カテゴリ[ki] 満点,
-  // col 3+CAT_KEYS.length*2: 未達成チェック項目, col 4+CAT_KEYS.length*2: 改善提案
-  const SUMMARY_FAILED_COL = 3 + CAT_KEYS.length * 2;
+  // ===== 共通スタイル定義 =====
+
+  const THIN_BORDER = {
+    top:    { style: 'thin', color: { rgb: 'D1D5DB' } },
+    bottom: { style: 'thin', color: { rgb: 'D1D5DB' } },
+    left:   { style: 'thin', color: { rgb: 'D1D5DB' } },
+    right:  { style: 'thin', color: { rgb: 'D1D5DB' } }
+  };
+
+  const HEADER_STYLE = {
+    font:      { bold: true, color: { rgb: 'FFFFFF' }, sz: 11 },
+    fill:      { fgColor: { rgb: '1E3A5F' } },
+    alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+    border:    THIN_BORDER
+  };
+
+  const SUB_HEADER_STYLE = {
+    font:      { bold: true, color: { rgb: 'FFFFFF' }, sz: 10 },
+    fill:      { fgColor: { rgb: '2D6A9F' } },
+    alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+    border:    THIN_BORDER
+  };
+
+  const STATS_HEADER_STYLE = {
+    font:      { bold: true, italic: true, sz: 10, color: { rgb: '374151' } },
+    fill:      { fgColor: { rgb: 'E5E7EB' } },
+    alignment: { horizontal: 'center', vertical: 'center' },
+    border:    THIN_BORDER
+  };
+
+  const MAX_CELL_STYLE = {
+    font:      { color: { rgb: '9CA3AF' }, sz: 10 },
+    alignment: { horizontal: 'center', vertical: 'center' },
+    border:    THIN_BORDER
+  };
+
+  const ZEBRA_COLOR = 'F0F4F8';
+
+  // ===== ヘルパー関数 =====
+
+  /**
+   * Excel 標準3色スケール互換のスムーズグラデーション色を返す
+   * 0% → #F8696B（赤）  50% → #FFEB84（黄）  100% → #63BE7B（緑）
+   */
+  function gradientRgb(score, max) {
+    const ratio = max > 0 ? Math.max(0, Math.min(1, score / max)) : 0;
+    const stops = [[0xF8, 0x69, 0x6B], [0xFF, 0xEB, 0x84], [0x63, 0xBE, 0x7B]];
+    const t  = ratio <= 0.5 ? ratio / 0.5 : (ratio - 0.5) / 0.5;
+    const s0 = ratio <= 0.5 ? stops[0] : stops[1];
+    const s1 = ratio <= 0.5 ? stops[1] : stops[2];
+    return [0, 1, 2]
+      .map(i => Math.round(s0[i] + t * (s1[i] - s0[i])).toString(16).padStart(2, '0'))
+      .join('')
+      .toUpperCase();
+  }
+
+  /** 得点割合から S / A / B / C / D のグレードを返す */
+  function getGrade(score, max) {
+    const r = max > 0 ? score / max : 0;
+    if (r >= 0.95) return 'S';
+    if (r >= 0.80) return 'A';
+    if (r >= 0.65) return 'B';
+    if (r >= 0.50) return 'C';
+    return 'D';
+  }
+
+  /** グレード文字に対応するセルスタイルを返す */
+  function gradeStyle(grade) {
+    const bg = { S: '4C1D95', A: '065F46', B: '1E3A8A', C: '92400E', D: '7F1D1D' };
+    return {
+      font:      { bold: true, color: { rgb: 'FFFFFF' }, sz: 12 },
+      fill:      { fgColor: { rgb: bg[grade] ?? '374151' } },
+      alignment: { horizontal: 'center', vertical: 'center' },
+      border:    THIN_BORDER
+    };
+  }
+
+  /** グラデーション背景付きスコアセルスタイルを返す */
+  function scoreStyle(score, max, zebra = false) {
+    const s = {
+      font:      { bold: true, sz: 11 },
+      fill:      { fgColor: { rgb: gradientRgb(score, max) } },
+      alignment: { horizontal: 'center', vertical: 'center' },
+      border:    THIN_BORDER
+    };
+    return s;
+  }
+
+  /** 通常データセルスタイル（ゼブラ対応） */
+  function dataStyle(zebra = false) {
+    const s = {
+      font:      { sz: 10 },
+      alignment: { vertical: 'top', wrapText: true },
+      border:    THIN_BORDER
+    };
+    if (zebra) s.fill = { fgColor: { rgb: ZEBRA_COLOR } };
+    return s;
+  }
+
+  /** ファイル名セルスタイル（ゼブラ対応） */
+  function filenameStyle(zebra = false) {
+    const s = {
+      font:      { bold: true, sz: 10 },
+      alignment: { vertical: 'center' },
+      border:    THIN_BORDER
+    };
+    if (zebra) s.fill = { fgColor: { rgb: ZEBRA_COLOR } };
+    return s;
+  }
+
+  // ===== シート1: サマリー =====
+  // 列構成:
+  // col 0: ファイル名, col 1: 合計点, col 2: 達成率, col 3: 評価,
+  // col 4+ki*2: カテゴリ[ki] 得点, col 5+ki*2: カテゴリ[ki] 満点,
+  // SUMMARY_FAILED_COL: 未達成チェック項目, SUMMARY_SUGGEST_COL: 改善提案
+  const SUMMARY_CAT_START  = 4;
+  const SUMMARY_FAILED_COL = SUMMARY_CAT_START + CAT_KEYS.length * 2;
   const SUMMARY_SUGGEST_COL = SUMMARY_FAILED_COL + 1;
 
-  // ---- シート1: サマリー ----
   const summaryHeaders = [
     'ファイル名',
     '合計点',
-    '満点',
+    '達成率',
+    '評価',
     ...CAT_KEYS.flatMap(key => {
       const cat = firstResult.categories[key];
       const label = cat ? cat.label : key;
@@ -995,7 +1107,8 @@ xlsxBtn.addEventListener('click', () => {
     return [
       r.filename,
       r.total,
-      100,
+      `${r.total}%`,
+      getGrade(r.total, 100),
       ...CAT_KEYS.flatMap(key => {
         const cat = r.categories[key];
         return cat ? [cat.score, cat.max] : [0, 0];
@@ -1005,67 +1118,121 @@ xlsxBtn.addEventListener('click', () => {
     ];
   });
 
-  const summaryData = [summaryHeaders, ...summaryRows];
+  // 統計行（平均・最高・最低）
+  const totals    = gradingResults.map(r => r.total);
+  const avgTotal  = totals.length ? Math.round(totals.reduce((a, b) => a + b, 0) / totals.length * 10) / 10 : 0;
+  const maxTotal  = totals.length ? Math.max(...totals) : 0;
+  const minTotal  = totals.length ? Math.min(...totals) : 0;
+
+  function catStatsRow(label, aggFn, totalVal) {
+    return [
+      label, totalVal, `${totalVal}%`, getGrade(totalVal, 100),
+      ...CAT_KEYS.flatMap(key => {
+        const vals   = gradingResults.map(r => r.categories[key]?.score ?? 0);
+        const catMax = firstResult.categories[key]?.max ?? 0;
+        return [aggFn(vals), catMax];
+      }),
+      '', ''
+    ];
+  }
+
+  const statsRows = [
+    catStatsRow('平均点', vals => Math.round(vals.reduce((a, b) => a + b, 0) / (vals.length || 1) * 10) / 10, avgTotal),
+    catStatsRow('最高点', vals => Math.max(...vals), maxTotal),
+    catStatsRow('最低点', vals => Math.min(...vals), minTotal)
+  ];
+
+  // 空行を1行挟んで統計行を追加
+  const summaryData = [summaryHeaders, ...summaryRows, [], ...statsRows];
   const summarySheet = XLSX.utils.aoa_to_sheet(summaryData);
 
-  // カラム幅設定
-  const CAT_SCORE_WIDTH = 16;
-  const CAT_MAX_WIDTH = 8;
   summarySheet['!cols'] = [
-    { wch: 30 },  // ファイル名
+    { wch: 32 },  // ファイル名
     { wch: 8 },   // 合計点
-    { wch: 6 },   // 満点
-    ...CAT_KEYS.flatMap(() => [{ wch: CAT_SCORE_WIDTH }, { wch: CAT_MAX_WIDTH }]),
+    { wch: 8 },   // 達成率
+    { wch: 6 },   // 評価
+    ...CAT_KEYS.flatMap(() => [{ wch: 16 }, { wch: 6 }]),
     { wch: 60 },  // 未達成チェック項目
     { wch: 60 }   // 改善提案
   ];
 
-  // ヘッダー行のスタイル
-  const headerStyle = {
-    font: { bold: true, color: { rgb: 'FFFFFF' } },
-    fill: { fgColor: { rgb: '2B6CB0' } },
-    alignment: { horizontal: 'center', wrapText: true }
-  };
+  summarySheet['!rows'] = [{ hpt: 36 }];  // ヘッダー行を高く
+
+  // 先頭行とファイル名列をフリーズ
+  summarySheet['!freeze'] = { xSplit: 1, ySplit: 1 };
+
+  // ヘッダー行スタイル（カテゴリ列は SUB_HEADER）
   summaryHeaders.forEach((_, colIdx) => {
     const cellRef = XLSX.utils.encode_cell({ r: 0, c: colIdx });
     if (summarySheet[cellRef]) {
-      summarySheet[cellRef].s = headerStyle;
+      const isCat = colIdx >= SUMMARY_CAT_START && colIdx < SUMMARY_FAILED_COL;
+      summarySheet[cellRef].s = isCat ? SUB_HEADER_STYLE : HEADER_STYLE;
     }
   });
 
-  // データ行のスコアセルにカラーを適用
+  // データ行スタイル
   summaryRows.forEach((row, rowIdx) => {
-    const r = rowIdx + 1; // 0行目がヘッダーなのでオフセット
-    // 合計点セル (col 1)
+    const r     = rowIdx + 1;
+    const zebra = rowIdx % 2 === 1;
+
+    const fnCell = summarySheet[XLSX.utils.encode_cell({ r, c: 0 })];
+    if (fnCell) fnCell.s = filenameStyle(zebra);
+
     const totalCell = summarySheet[XLSX.utils.encode_cell({ r, c: 1 })];
-    if (totalCell) {
-      totalCell.s = {
-        fill: { fgColor: { rgb: scoreColor(row[1], 100) } },
-        alignment: { horizontal: 'center' }
-      };
-    }
-    // カテゴリ得点セル
+    if (totalCell) totalCell.s = scoreStyle(row[1], 100, zebra);
+
+    const pctCell = summarySheet[XLSX.utils.encode_cell({ r, c: 2 })];
+    if (pctCell) pctCell.s = scoreStyle(row[1], 100, zebra);
+
+    const gradeCell = summarySheet[XLSX.utils.encode_cell({ r, c: 3 })];
+    if (gradeCell) gradeCell.s = gradeStyle(row[3]);
+
     CAT_KEYS.forEach((_, ki) => {
-      const scoreCol = 3 + ki * 2;
-      const maxCol   = 4 + ki * 2;
-      const scoreCellRef = XLSX.utils.encode_cell({ r, c: scoreCol });
-      if (summarySheet[scoreCellRef]) {
-        summarySheet[scoreCellRef].s = {
-          fill: { fgColor: { rgb: scoreColor(row[scoreCol], row[maxCol]) } },
-          alignment: { horizontal: 'center' }
-        };
+      const scoreCol = SUMMARY_CAT_START + ki * 2;
+      const maxCol   = scoreCol + 1;
+      const sc = summarySheet[XLSX.utils.encode_cell({ r, c: scoreCol })];
+      if (sc) sc.s = scoreStyle(row[scoreCol], row[maxCol], zebra);
+      const mc = summarySheet[XLSX.utils.encode_cell({ r, c: maxCol })];
+      if (mc) {
+        mc.s = { ...MAX_CELL_STYLE };
+        if (zebra) mc.s.fill = { fgColor: { rgb: ZEBRA_COLOR } };
       }
     });
-    // 未達成・提案セルは折り返し
+
     [SUMMARY_FAILED_COL, SUMMARY_SUGGEST_COL].forEach(c => {
-      const cellRef = XLSX.utils.encode_cell({ r, c });
-      if (summarySheet[cellRef]) {
-        summarySheet[cellRef].s = { alignment: { wrapText: true, vertical: 'top' } };
-      }
+      const cell = summarySheet[XLSX.utils.encode_cell({ r, c })];
+      if (cell) cell.s = dataStyle(zebra);
     });
   });
 
-  // ---- シート2: チェック詳細 ----
+  // 統計行スタイル（空行の次の行から）
+  const STATS_ROW_START = 1 + summaryRows.length + 1; // ヘッダー + データ行 + 空行
+  statsRows.forEach((row, si) => {
+    const r = STATS_ROW_START + si;
+
+    const labelCell = summarySheet[XLSX.utils.encode_cell({ r, c: 0 })];
+    if (labelCell) labelCell.s = STATS_HEADER_STYLE;
+
+    const totalCell = summarySheet[XLSX.utils.encode_cell({ r, c: 1 })];
+    if (totalCell) totalCell.s = scoreStyle(row[1], 100);
+
+    const pctCell = summarySheet[XLSX.utils.encode_cell({ r, c: 2 })];
+    if (pctCell) pctCell.s = scoreStyle(row[1], 100);
+
+    const gradeCell = summarySheet[XLSX.utils.encode_cell({ r, c: 3 })];
+    if (gradeCell) gradeCell.s = gradeStyle(row[3]);
+
+    CAT_KEYS.forEach((_, ki) => {
+      const scoreCol = SUMMARY_CAT_START + ki * 2;
+      const maxCol   = scoreCol + 1;
+      const sc = summarySheet[XLSX.utils.encode_cell({ r, c: scoreCol })];
+      if (sc) sc.s = scoreStyle(row[scoreCol], row[maxCol]);
+      const mc = summarySheet[XLSX.utils.encode_cell({ r, c: maxCol })];
+      if (mc) mc.s = MAX_CELL_STYLE;
+    });
+  });
+
+  // ===== シート2: チェック詳細 =====
   const detailHeaders = ['ファイル名', 'カテゴリ', 'チェック項目', '配点', '結果', '理由・改善提案'];
   const detailRows = [];
   gradingResults.forEach(res => {
@@ -1087,62 +1254,241 @@ xlsxBtn.addEventListener('click', () => {
   const detailSheet = XLSX.utils.aoa_to_sheet(detailData);
 
   detailSheet['!cols'] = [
-    { wch: 30 }, // ファイル名
-    { wch: 20 }, // カテゴリ
-    { wch: 35 }, // チェック項目
+    { wch: 32 }, // ファイル名
+    { wch: 22 }, // カテゴリ
+    { wch: 38 }, // チェック項目
     { wch: 6 },  // 配点
-    { wch: 10 }, // 結果
-    { wch: 70 }  // 理由・改善提案
+    { wch: 12 }, // 結果
+    { wch: 72 }  // 理由・改善提案
   ];
 
-  // ヘッダー行スタイル
+  detailSheet['!rows'] = [{ hpt: 36 }];
+  detailSheet['!freeze'] = { xSplit: 0, ySplit: 1 };
+
   detailHeaders.forEach((_, colIdx) => {
     const cellRef = XLSX.utils.encode_cell({ r: 0, c: colIdx });
-    if (detailSheet[cellRef]) {
-      detailSheet[cellRef].s = headerStyle;
-    }
+    if (detailSheet[cellRef]) detailSheet[cellRef].s = HEADER_STYLE;
   });
 
-  // データ行スタイル
   const DETAIL_RESULT_COL = 4;
   const DETAIL_REASON_COL = 5;
   detailRows.forEach((row, rowIdx) => {
-    const r = rowIdx + 1;
-    const pass = row[DETAIL_RESULT_COL] === '✅ 合格';
+    const r     = rowIdx + 1;
+    const pass  = row[DETAIL_RESULT_COL] === '✅ 合格';
+    const zebra = rowIdx % 2 === 1;
+
+    const fnCell = detailSheet[XLSX.utils.encode_cell({ r, c: 0 })];
+    if (fnCell) fnCell.s = filenameStyle(zebra);
+
+    const catCell = detailSheet[XLSX.utils.encode_cell({ r, c: 1 })];
+    if (catCell) {
+      catCell.s = {
+        font:      { bold: true, sz: 10 },
+        alignment: { horizontal: 'center', vertical: 'center' },
+        border:    THIN_BORDER
+      };
+      if (zebra) catCell.s.fill = { fgColor: { rgb: ZEBRA_COLOR } };
+    }
+
+    const chkCell = detailSheet[XLSX.utils.encode_cell({ r, c: 2 })];
+    if (chkCell) {
+      chkCell.s = {
+        font:      { sz: 10 },
+        alignment: { vertical: 'center', wrapText: true },
+        border:    THIN_BORDER
+      };
+      if (zebra) chkCell.s.fill = { fgColor: { rgb: ZEBRA_COLOR } };
+    }
+
+    const ptCell = detailSheet[XLSX.utils.encode_cell({ r, c: 3 })];
+    if (ptCell) {
+      ptCell.s = {
+        font:      { sz: 10 },
+        alignment: { horizontal: 'center', vertical: 'center' },
+        border:    THIN_BORDER
+      };
+      if (zebra) ptCell.s.fill = { fgColor: { rgb: ZEBRA_COLOR } };
+    }
+
     const resultCellRef = XLSX.utils.encode_cell({ r, c: DETAIL_RESULT_COL });
     if (detailSheet[resultCellRef]) {
       detailSheet[resultCellRef].s = {
-        fill: { fgColor: { rgb: pass ? 'C6EFCE' : 'FFC7CE' } },
-        font: { color: { rgb: pass ? '276749' : 'C53030' } },
-        alignment: { horizontal: 'center' }
+        fill:      { fgColor: { rgb: pass ? '63BE7B' : 'F8696B' } },
+        font:      { bold: true, color: { rgb: 'FFFFFF' }, sz: 11 },
+        alignment: { horizontal: 'center', vertical: 'center' },
+        border:    THIN_BORDER
       };
     }
+
     const reasonCellRef = XLSX.utils.encode_cell({ r, c: DETAIL_REASON_COL });
     if (detailSheet[reasonCellRef]) {
-      detailSheet[reasonCellRef].s = { alignment: { wrapText: true, vertical: 'top' } };
+      detailSheet[reasonCellRef].s = {
+        font:      { sz: 10, color: { rgb: pass ? '6B7280' : '374151' } },
+        alignment: { wrapText: true, vertical: 'top' },
+        border:    THIN_BORDER
+      };
+      if (!pass) detailSheet[reasonCellRef].s.fill = { fgColor: { rgb: 'FFF3F3' } };
+      else if (zebra) detailSheet[reasonCellRef].s.fill = { fgColor: { rgb: ZEBRA_COLOR } };
     }
   });
 
-  // ワークブック作成
+  // ===== シート3: 統計レポート =====
+  const statsSheetData = [];
+
+  // タイトル・サブタイトル
+  statsSheetData.push(['📊 採点結果 統計レポート']);
+  statsSheetData.push([`採点ファイル数: ${gradingResults.length} 件`]);
+  statsSheetData.push([]);
+
+  // スコア分布表
+  const statsTableHeaders = ['', '合計点（/100）', ...CAT_KEYS.map(key => firstResult.categories[key]?.label ?? key)];
+  statsSheetData.push(statsTableHeaders); // row index 3
+  const STATS_TBL_ROW = statsSheetData.length - 1;
+
+  const statsTableRows = [
+    ['平均点', avgTotal, ...CAT_KEYS.map(key => {
+      const vals = gradingResults.map(r => r.categories[key]?.score ?? 0);
+      return Math.round(vals.reduce((a, b) => a + b, 0) / (vals.length || 1) * 10) / 10;
+    })],
+    ['最高点', maxTotal, ...CAT_KEYS.map(key => Math.max(...gradingResults.map(r => r.categories[key]?.score ?? 0)))],
+    ['最低点', minTotal, ...CAT_KEYS.map(key => Math.min(...gradingResults.map(r => r.categories[key]?.score ?? 0)))]
+  ];
+  statsTableRows.forEach(row => statsSheetData.push(row));
+
+  statsSheetData.push([]);
+  statsSheetData.push([]);
+
+  // 評価分布表
+  statsSheetData.push(['評価分布']); // row index STATS_TBL_ROW + 4 + 2 = STATS_TBL_ROW + 6
+  const GRADE_SECTION_ROW = statsSheetData.length - 1;
+
+  statsSheetData.push(['評価', '件数', '割合', '基準']);
+  const GRADE_HDR_ROW = statsSheetData.length - 1;
+
+  const gradeDefs = [
+    ['S', '95% 以上（95〜100点）'],
+    ['A', '80% 以上（80〜94点）'],
+    ['B', '65% 以上（65〜79点）'],
+    ['C', '50% 以上（50〜64点）'],
+    ['D', '50% 未満（0〜49点）']
+  ];
+  const gradeBg = { S: '4C1D95', A: '065F46', B: '1E3A8A', C: '92400E', D: '7F1D1D' };
+  gradeDefs.forEach(([g, desc]) => {
+    const count = gradingResults.filter(r => getGrade(r.total, 100) === g).length;
+    const pct   = gradingResults.length ? Math.round(count / gradingResults.length * 100) : 0;
+    statsSheetData.push([g, count, `${pct}%`, desc]);
+  });
+
+  const statsSheet = XLSX.utils.aoa_to_sheet(statsSheetData);
+  statsSheet['!cols'] = [
+    { wch: 16 },
+    { wch: 14 },
+    ...CAT_KEYS.map(() => ({ wch: 18 }))
+  ];
+
+  // タイトルスタイル
+  if (statsSheet['A1']) {
+    statsSheet['A1'].s = {
+      font:      { bold: true, sz: 16, color: { rgb: '1E3A5F' } },
+      alignment: { horizontal: 'left', vertical: 'center' }
+    };
+  }
+  if (statsSheet['A2']) {
+    statsSheet['A2'].s = {
+      font:      { sz: 11, color: { rgb: '4B5563' } },
+      alignment: { horizontal: 'left', vertical: 'center' }
+    };
+  }
+
+  // スコア分布表ヘッダー行スタイル
+  statsTableHeaders.forEach((_, colIdx) => {
+    const cellRef = XLSX.utils.encode_cell({ r: STATS_TBL_ROW, c: colIdx });
+    if (statsSheet[cellRef]) statsSheet[cellRef].s = HEADER_STYLE;
+  });
+
+  // スコア分布表データ行スタイル
+  statsTableRows.forEach((row, si) => {
+    const r = STATS_TBL_ROW + 1 + si;
+
+    const labelCell = statsSheet[XLSX.utils.encode_cell({ r, c: 0 })];
+    if (labelCell) labelCell.s = STATS_HEADER_STYLE;
+
+    const totalCellRef = XLSX.utils.encode_cell({ r, c: 1 });
+    if (statsSheet[totalCellRef]) statsSheet[totalCellRef].s = scoreStyle(row[1], 100);
+
+    CAT_KEYS.forEach((key, ki) => {
+      const catMax = firstResult.categories[key]?.max ?? 0;
+      const cellRef = XLSX.utils.encode_cell({ r, c: 2 + ki });
+      if (statsSheet[cellRef]) statsSheet[cellRef].s = scoreStyle(row[2 + ki], catMax);
+    });
+  });
+
+  // 評価分布セクション見出しスタイル
+  const gradeSectionCell = statsSheet[XLSX.utils.encode_cell({ r: GRADE_SECTION_ROW, c: 0 })];
+  if (gradeSectionCell) {
+    gradeSectionCell.s = {
+      font:      { bold: true, sz: 13, color: { rgb: '1E3A5F' } },
+      alignment: { horizontal: 'left', vertical: 'center' }
+    };
+  }
+
+  // 評価分布表ヘッダー行スタイル
+  ['評価', '件数', '割合', '基準'].forEach((_, colIdx) => {
+    const cellRef = XLSX.utils.encode_cell({ r: GRADE_HDR_ROW, c: colIdx });
+    if (statsSheet[cellRef]) statsSheet[cellRef].s = HEADER_STYLE;
+  });
+
+  // 評価分布データ行スタイル
+  gradeDefs.forEach(([g], gi) => {
+    const r = GRADE_HDR_ROW + 1 + gi;
+    const bg = gradeBg[g] ?? '374151';
+
+    const gradeCell = statsSheet[XLSX.utils.encode_cell({ r, c: 0 })];
+    if (gradeCell) {
+      gradeCell.s = {
+        font:      { bold: true, color: { rgb: 'FFFFFF' }, sz: 14 },
+        fill:      { fgColor: { rgb: bg } },
+        alignment: { horizontal: 'center', vertical: 'center' },
+        border:    THIN_BORDER
+      };
+    }
+
+    const countCell = statsSheet[XLSX.utils.encode_cell({ r, c: 1 })];
+    if (countCell) {
+      countCell.s = {
+        font:      { bold: true, sz: 12 },
+        alignment: { horizontal: 'center', vertical: 'center' },
+        border:    THIN_BORDER
+      };
+    }
+
+    const pctCell = statsSheet[XLSX.utils.encode_cell({ r, c: 2 })];
+    if (pctCell) {
+      pctCell.s = {
+        font:      { sz: 11 },
+        alignment: { horizontal: 'center', vertical: 'center' },
+        border:    THIN_BORDER
+      };
+    }
+
+    const descCell = statsSheet[XLSX.utils.encode_cell({ r, c: 3 })];
+    if (descCell) {
+      descCell.s = {
+        font:      { sz: 10, color: { rgb: '4B5563' } },
+        alignment: { horizontal: 'left', vertical: 'center' },
+        border:    THIN_BORDER
+      };
+    }
+  });
+
+  // ===== ワークブック作成 =====
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, summarySheet, 'サマリー');
   XLSX.utils.book_append_sheet(wb, detailSheet, 'チェック詳細');
+  XLSX.utils.book_append_sheet(wb, statsSheet, '統計レポート');
 
   XLSX.writeFile(wb, 'html_grading_results.xlsx');
 });
-
-/**
- * スコア割合に応じた背景色（ARGB 16進数文字列）を返す
- * @param {number} score
- * @param {number} max
- * @returns {string}
- */
-function scoreColor(score, max) {
-  const ratio = max > 0 ? score / max : 0;
-  if (ratio >= 0.9) return 'C6EFCE'; // 緑（高得点）
-  if (ratio >= 0.7) return 'FFEB9C'; // 黄（中得点）
-  return 'FFC7CE';                    // 赤（低得点）
-}
 
 /* ---- ユーティリティ ---- */
 
