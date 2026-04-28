@@ -484,10 +484,11 @@ function gradeHTML(html) {
   /* ---- ⑤ ベストプラクティス（10点） ---- */
   const bp = { label: 'ベストプラクティス', max: 10, score: 0, checks: [] };
 
-  const hasInlineStyle = doc.querySelectorAll('[style]').length > 0;
+  const hasInlineStyle = doc.querySelector('[style]') !== null;
   addCheck(bp, 'インラインスタイルを使っていない', !hasInlineStyle, 5,
     'style属性（インラインスタイル）が使われています。外部CSSファイルまたは<style>タグに移してください。');
 
+  // HTML5 で再定義された <b><i><u> は除外し、真に非推奨のタグのみを対象とする
   const deprecatedTags = ['font', 'center', 'strike', 'marquee'];
   const usedDeprecated = deprecatedTags.filter(tag =>
     new RegExp(`<${tag}[\\s>]`, 'i').test(html)
