@@ -427,7 +427,11 @@ function gradeHTML(html) {
 
   const images = doc.querySelectorAll('img');
   const imgAltOk = images.length === 0 || Array.from(images).every(img => img.hasAttribute('alt'));
-  const badImgLines = imgAltOk ? [] : findAllLines(lines, /<img\b(?![^>]*\balt\s*=)[^>]*>/i);
+  // Per-line regex works for single-line <img> tags; fall back to all <img> lines for multi-line cases
+  const badImgLines = imgAltOk ? [] : (() => {
+    const found = findAllLines(lines, /<img\b(?![^>]*\balt\s*=)[^>]*>/i);
+    return found.length > 0 ? found : findAllLines(lines, /<img\b/i);
+  })();
   addCheck(sem, '<img> タグに alt 属性がある', imgAltOk, 5,
     images.length === 0
       ? '（img タグなし・対象外）'
@@ -485,18 +489,34 @@ function gradeHTML(html) {
     return !noLabelTypes.includes(type);
   });
   let labelOk = true;
+  const unlabeledInputLines = [];
   if (labelableInputs.length > 0) {
-    labelOk = labelableInputs.every(inp => {
+    labelableInputs.forEach(inp => {
       const id = inp.getAttribute('id');
-      if (id && doc.querySelector(`label[for="${id}"]`)) return true;
-      // label で囲まれているケース
-      return !!inp.closest('label');
+      const hasLabel = (id && doc.querySelector(`label[for="${id}"]`)) || !!inp.closest('label');
+      if (!hasLabel) {
+        labelOk = false;
+        // Try to find the line by the input's id attribute
+        let lineNum = null;
+        if (id) {
+          const idx = lines.findIndex(l => l.includes(`id="${id}"`) || l.includes(`id='${id}'`));
+          if (idx !== -1) lineNum = idx + 1;
+        }
+        // Fallback: pick next <input> line not already recorded
+        if (!lineNum) {
+          const allInputLines = findAllLines(lines, /<input\b/i);
+          lineNum = allInputLines.find(l => !unlabeledInputLines.includes(l)) || null;
+        }
+        if (lineNum && !unlabeledInputLines.includes(lineNum)) {
+          unlabeledInputLines.push(lineNum);
+        }
+      }
     });
   }
   addCheck(a11y, '<input> に対応する <label> がある', labelOk, 5,
     labelableInputs.length === 0
       ? '（label が必要な input タグなし・対象外）'
-      : `<input> に対応する <label> がない要素があります${lineRef(findAllLines(lines, /<input\b/i))}`);
+      : `<input> に対応する <label> がない要素があります${lineRef(unlabeledInputLines)}`);
 
   const anchors = doc.querySelectorAll('a');
   const badTexts = ['こちら', 'here', 'click', 'クリック', 'ここ'];
