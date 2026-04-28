@@ -358,7 +358,7 @@
  * @returns {object} - 採点結果
  */
 function gradeHTML(html) {
-  const lines = html.split('\n');
+  const lines = html.split(/\r?\n/);
 
   // DOMParser でパース（ブラウザ内）
   const parser = new DOMParser();
@@ -388,7 +388,7 @@ function gradeHTML(html) {
   addCheck(struct, '<body> タグがある', !!doc.querySelector('body'), 5,
     '<body> タグがありません。');
 
-  const hasMetaCharset = /<meta[^>]+charset/i.test(html);
+  const hasMetaCharset = /<meta[^>]+charset\s*=/i.test(html);
   addCheck(struct, '<meta charset> がある', hasMetaCharset, 5,
     '<meta charset> がありません。例: <meta charset="UTF-8">');
 
@@ -409,9 +409,15 @@ function gradeHTML(html) {
 
   const headings = doc.querySelectorAll('h1,h2,h3,h4,h5,h6');
   const h1Count = doc.querySelectorAll('h1').length;
-  const headingOk = h1Count <= 1 && isHeadingHierarchyCorrect(headings);
-  addCheck(sem, '見出し階層が正しい（h1が複数ない等）', headingOk, 5,
-    h1Count > 1 ? `<h1> が ${h1Count} 個あります。<h1> は1ページに1つにしてください。` : '見出し階層が飛んでいます（例: h1 の次に h3）。');
+  const headingOk = (headings.length === 0 || h1Count === 1) && isHeadingHierarchyCorrect(headings);
+  const headingReason = h1Count > 1
+    ? `<h1> が ${h1Count} 個あります。<h1> は1ページに1つにしてください。`
+    : headings.length > 0 && h1Count === 0
+      ? '<h1> タグがありません。ページのメインタイトルに <h1> を使ってください。'
+      : headings.length > 0 && parseInt(headings[0].tagName[1], 10) !== 1
+        ? '<h1> が最初の見出しになっていません。ページ最初の見出しを <h1> にしてください。'
+        : '見出し階層が飛んでいます（例: h1 の次に h3）。';
+  addCheck(sem, '見出し階層が正しい（h1が複数ない等）', headingOk, 5, headingReason);
 
   const images = doc.querySelectorAll('img');
   const imgAltOk = images.length === 0 || Array.from(images).every(img => img.hasAttribute('alt'));
@@ -419,11 +425,6 @@ function gradeHTML(html) {
     images.length === 0
       ? '（img タグなし・対象外）'
       : '<img> タグに alt 属性がないものがあります。');
-  // img が0枚の場合は対象外として加点
-  if (images.length === 0) {
-    sem.checks[sem.checks.length - 1].pass = true;
-    sem.score += 5;
-  }
 
   result.categories['セマンティクス'] = sem;
 
@@ -446,7 +447,7 @@ function gradeHTML(html) {
   addCheck(read, 'コメントが1つ以上書かれている', hasComment, 5,
     'HTMLコメント（<!-- ... -->）が1つもありません。');
 
-  const consecutiveBlankOk = !/((\r?\n){3,})/.test(html);
+  const consecutiveBlankOk = !/((\r?\n){4,})/.test(html);
   addCheck(read, '連続する空白行が3行以上ない', consecutiveBlankOk, 5,
     '3行以上連続する空白行があります。');
 
@@ -456,9 +457,15 @@ function gradeHTML(html) {
   const a11y = { label: 'アクセシビリティ', max: 15, score: 0, checks: [] };
 
   const inputs = doc.querySelectorAll('input');
+  // ラベルが不要な input タイプを除外する
+  const noLabelTypes = ['hidden', 'submit', 'reset', 'button', 'image'];
+  const labelableInputs = Array.from(inputs).filter(inp => {
+    const type = (inp.getAttribute('type') || 'text').toLowerCase();
+    return !noLabelTypes.includes(type);
+  });
   let labelOk = true;
-  if (inputs.length > 0) {
-    labelOk = Array.from(inputs).every(inp => {
+  if (labelableInputs.length > 0) {
+    labelOk = labelableInputs.every(inp => {
       const id = inp.getAttribute('id');
       if (id && doc.querySelector(`label[for="${id}"]`)) return true;
       // label で囲まれているケース
@@ -466,13 +473,9 @@ function gradeHTML(html) {
     });
   }
   addCheck(a11y, '<input> に対応する <label> がある', labelOk, 5,
-    inputs.length === 0
-      ? '（input タグなし・対象外）'
+    labelableInputs.length === 0
+      ? '（label が必要な input タグなし・対象外）'
       : '<input> に対応する <label> がない要素があります。');
-  if (inputs.length === 0) {
-    a11y.checks[a11y.checks.length - 1].pass = true;
-    a11y.score += 5;
-  }
 
   const anchors = doc.querySelectorAll('a');
   const badTexts = ['こちら', 'here', 'click', 'クリック', 'ここ'];
@@ -493,11 +496,12 @@ function gradeHTML(html) {
   /* ---- ⑤ ベストプラクティス（10点） ---- */
   const bp = { label: 'ベストプラクティス', max: 10, score: 0, checks: [] };
 
-  const hasInlineStyle = /\bstyle\s*=/i.test(html);
+  const hasInlineStyle = doc.querySelector('[style]') !== null;
   addCheck(bp, 'インラインスタイルを使っていない', !hasInlineStyle, 5,
     'style属性（インラインスタイル）が使われています。外部CSSファイルまたは<style>タグに移してください。');
 
-  const deprecatedTags = ['font', 'center', 'b', 'i', 'u', 'strike', 'marquee'];
+  // HTML5 で再定義された <b><i><u> は除外し、真に非推奨のタグのみを対象とする
+  const deprecatedTags = ['font', 'center', 'strike', 'marquee'];
   const usedDeprecated = deprecatedTags.filter(tag =>
     new RegExp(`<${tag}[\\s>]`, 'i').test(html)
   );
@@ -531,6 +535,7 @@ function addCheck(cat, label, pass, points, reason) {
 function isHeadingHierarchyCorrect(headings) {
   if (headings.length === 0) return true;
   const levels = Array.from(headings).map(h => parseInt(h.tagName[1], 10));
+  if (levels[0] !== 1) return false;
   for (let i = 1; i < levels.length; i++) {
     if (levels[i] - levels[i - 1] > 1) return false;
   }
@@ -562,8 +567,10 @@ uploadArea.addEventListener('dragover', e => {
   uploadArea.classList.add('drag-over');
 });
 
-uploadArea.addEventListener('dragleave', () => {
-  uploadArea.classList.remove('drag-over');
+uploadArea.addEventListener('dragleave', e => {
+  if (!e.relatedTarget || !uploadArea.contains(e.relatedTarget)) {
+    uploadArea.classList.remove('drag-over');
+  }
 });
 
 uploadArea.addEventListener('drop', e => {
@@ -630,18 +637,23 @@ gradeBtn.addEventListener('click', async () => {
   gradingResults = [];
   resultsContainer.innerHTML = '';
 
-  for (const [name, file] of selectedFiles) {
-    const html = await readFileAsText(file);
-    const result = gradeHTML(html);
-    result.filename = name;
-    gradingResults.push(result);
-    resultsContainer.appendChild(buildCard(result));
-  }
+  try {
+    for (const [name, file] of selectedFiles) {
+      const html = await readFileAsText(file);
+      const result = gradeHTML(html);
+      result.filename = name;
+      gradingResults.push(result);
+      resultsContainer.appendChild(buildCard(result));
+    }
 
-  resultsSection.style.display = 'block';
-  resultsSection.scrollIntoView({ behavior: 'smooth' });
-  gradeBtn.disabled = false;
-  gradeBtn.textContent = '採点する';
+    resultsSection.style.display = 'block';
+    resultsSection.scrollIntoView({ behavior: 'smooth' });
+  } catch (err) {
+    alert(`採点中にエラーが発生しました: ${err.message}`);
+  } finally {
+    gradeBtn.disabled = false;
+    gradeBtn.textContent = '採点する';
+  }
 });
 
 /**
